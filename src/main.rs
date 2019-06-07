@@ -1,24 +1,47 @@
 mod chunk;
+mod compiler;
 mod disassembler;
 mod opcode;
 mod value;
 mod vm;
 
-use chunk::{OpCodeLine, Chunk};
-use opcode::OpCode;
-use value::Value;
+use std::{fs, io, process};
 use vm::VM;
 
 fn main() {
-    let mut chunk = Chunk::new();
-    chunk.code.push(OpCodeLine { code: OpCode::OpConstant(Value::Double(5.5)), line: 1 });
-    chunk.code.push(OpCodeLine { code: OpCode::OpConstant(Value::Double(51.5)), line: 1 });
-    chunk.code.push(OpCodeLine { code: OpCode::OpAdd, line: 1 });
-    chunk.code.push(OpCodeLine { code: OpCode::OpReturn, line: 1 });
+    let vm = VM::new();
 
-    let mut vm = VM::new();
+    let args: Vec<String> = std::env::args().collect();
+    match args.len() {
+        1 => repl(vm),
+        2 => run_file(vm, &args[1]),
+        _ => {
+            println!("Usage: loxrs [path]");
+            process::exit(64);
+        }
+    }
+}
 
-    disassembler::disassemble_chunk(&chunk, "test");
+fn repl(mut vm: VM) {
+    let mut input = String::new();
+    loop {
+        print!("> ");
 
-    vm.interpret(chunk);
+        io::stdin()
+            .read_line(&mut input)
+            .expect("Failed to read line!!");
+
+        vm.interpret(&input);
+    }
+}
+
+fn run_file(mut vm: VM, path: &String) {
+    let file = fs::read_to_string(path);
+    match file {
+        Ok(input) => vm.interpret(&input),
+        Err(_) => {
+            println!("Failed to read file.");
+            process::exit(74);
+        }
+    };
 }

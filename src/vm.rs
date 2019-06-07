@@ -9,10 +9,8 @@ pub struct VM {
 }
 
 impl VM {
-    pub fn interpret(&mut self, chunk: Chunk) -> InterpretResult {
-        self.chunk = chunk;
-        self.ip = 0;
-        self.run()
+    pub fn interpret(&mut self, source: &String) {
+
     }
 
     // TODO: Error handling. Currently, most incorrect bytecode panics
