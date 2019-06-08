@@ -5,9 +5,11 @@ use super::opcode::OpCode;
 use super::value::Value;
 
 pub struct VM {
-    pub chunk: Chunk,
-    pub ip: usize,
-    pub stack: Vec<Value>
+    chunk: Chunk,
+    ip: usize,
+    stack: Vec<Value>,
+
+    had_error: bool
 }
 
 impl VM {
@@ -15,18 +17,20 @@ impl VM {
         self.chunk = Chunk::new();
         self.ip = 0;
 
-        let mut compiler = Compiler::new(&mut self.chunk); 
-        compiler.compile(source);
+        let mut compiler = Compiler::new(&mut self.chunk);
 
-        disassembler::disassemble_chunk(&self.chunk, "RESULT");
-
-        self.run()
+        if compiler.compile(source) {
+            disassembler::disassemble_chunk(&self.chunk, "RESULT");
+            self.run()
+        } else {
+            InterpretResult::CompileError
+        }
     }
 
-    // TODO: Error handling. Currently, most incorrect bytecode panics
     fn run(&mut self) -> InterpretResult {
         loop {
             self.ip += 1;
+
             match self.get_current_instruction() {
                 OpCode::Return => {
                     println!("{:?}", self.stack.pop().unwrap());
@@ -36,23 +40,43 @@ impl VM {
                 // TODO: Don't just copy them!!
                 OpCode::Constant(constant) => self.stack.push(*constant),
 
-                OpCode::Negate => {
-                    let value = self.stack.pop().unwrap();
-                    self.stack.push(-value);
+                OpCode::False => self.stack.push(Value::Bool(false)),
+                OpCode::True => self.stack.push(Value::Bool(true)),
+                OpCode::Nil => self.stack.push(Value::Nil),
+
+                OpCode::Negate | OpCode::Not => {
+                    let opcode = *self.get_current_instruction();
+                    let result = self.unary_instruction(&opcode);
+                    self.stack.push(result)
                 }
 
-                // TODO: I HATE pointers... See comment above...
-                OpCode::Add | OpCode::Substract | OpCode::Multiply | OpCode::Divide => {
+                OpCode::Add | OpCode::Substract | OpCode::Multiply | OpCode::Divide |
+                OpCode::Equal | OpCode::Greater | OpCode::Less => {
                     let opcode = *self.get_current_instruction();
                     let result = self.binary_instruction(&opcode);
                     self.stack.push(result);
                 },
+            }
+
+            if self.had_error {
+                break InterpretResult::RuntimeError
             }
         }
     }
 
     fn get_current_instruction(&self) -> &OpCode {
         &self.chunk.code[self.ip - 1].code
+    }
+
+    fn unary_instruction(&mut self, opcode: &OpCode) -> Value {
+        match opcode {
+            OpCode::Negate => -self.stack.pop().unwrap(),
+            OpCode::Not => !self.stack.pop().unwrap(),
+            _ => panic!("Unary instruction was tried to be processed; opcode was not a unary instruction!!")
+        }.unwrap_or_else(|| {
+            self.runtime_error("Unary operation had an invalid operand!");
+            Value::Nil
+        })
     }
 
     fn binary_instruction(&mut self, opcode: &OpCode) -> Value {
@@ -64,15 +88,29 @@ impl VM {
             OpCode::Substract => a - b,
             OpCode::Multiply => a * b,
             OpCode::Divide => a / b,
+
+            OpCode::Equal => a.equal(b),
+            OpCode::Greater => a.greater(b),
+            OpCode::Less => a.less(b),
+
             _ => panic!("Binary instruction was tried to be processed; opcode was not a binary instruction!!")
-        }
+        }.unwrap_or_else(|| {
+            self.runtime_error("Binary operation had invalid operands!");
+            Value::Nil
+        })
+    }
+    
+    fn runtime_error(&mut self, message: &str) {
+        self.had_error = true;
+        println!("[Line {}] Runtime error: {}", self.chunk.code[self.ip - 1].line, message);
     }
 
     pub fn new() -> VM {
         VM { 
             chunk: Chunk::new(), 
             ip: 0,
-            stack: Vec::with_capacity(256)
+            stack: Vec::with_capacity(256),
+            had_error: false
         }
     }
 }

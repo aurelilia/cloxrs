@@ -103,8 +103,8 @@ impl<'a> Scanner<'a> {
     fn check_identifier_keyword(&self, start: usize, pattern: &[char], t_type: Type) -> Type {
         // Loop all chars in the pattern; if one does not match it is NOT the keyword
         // TODO: This probably matches ex. 'superb' as 'super'... Should fix that
-        for ch in (self.start + start)..((self.start + start) + pattern.len()) {
-            if self.chars[ch] != pattern[ch] { return Type::Identifier; }
+        for ch in 0..pattern.len() {
+            if self.chars[self.start + start + ch] != pattern[ch] { return Type::Identifier; }
         }
         // All matched! It is the keyword after all
         t_type
@@ -175,7 +175,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn is_at_end(&mut self) -> bool {
+    fn is_at_end(&self) -> bool {
         self.peek() == '\0'
     }
 
