@@ -1,5 +1,6 @@
 use super::compiler::Compiler;
 use super::chunk::Chunk;
+use super::disassembler;
 use super::opcode::OpCode;
 use super::value::Value;
 
@@ -17,6 +18,8 @@ impl VM {
         let mut compiler = Compiler::new(&mut self.chunk); 
         compiler.compile(source);
 
+        disassembler::disassemble_chunk(&self.chunk, "RESULT");
+
         self.run()
     }
 
@@ -25,21 +28,21 @@ impl VM {
         loop {
             self.ip += 1;
             match self.get_current_instruction() {
-                OpCode::OpReturn => {
+                OpCode::Return => {
                     println!("{:?}", self.stack.pop().unwrap());
                     break InterpretResult::Ok
                 },
 
                 // TODO: Don't just copy them!!
-                OpCode::OpConstant(constant) => self.stack.push(*constant),
+                OpCode::Constant(constant) => self.stack.push(*constant),
 
-                OpCode::OpNegate => {
+                OpCode::Negate => {
                     let value = self.stack.pop().unwrap();
                     self.stack.push(-value);
                 }
 
                 // TODO: I HATE pointers... See comment above...
-                OpCode::OpAdd | OpCode::OpSubstract | OpCode::OpMultiply | OpCode::OpDivide => {
+                OpCode::Add | OpCode::Substract | OpCode::Multiply | OpCode::Divide => {
                     let opcode = *self.get_current_instruction();
                     let result = self.binary_instruction(&opcode);
                     self.stack.push(result);
@@ -57,10 +60,10 @@ impl VM {
         let a = self.stack.pop().unwrap();
 
         match opcode {
-            OpCode::OpAdd => a + b,
-            OpCode::OpSubstract => a - b,
-            OpCode::OpMultiply => a * b,
-            OpCode::OpDivide => a / b,
+            OpCode::Add => a + b,
+            OpCode::Substract => a - b,
+            OpCode::Multiply => a * b,
+            OpCode::Divide => a / b,
             _ => panic!("Binary instruction was tried to be processed; opcode was not a binary instruction!!")
         }
     }

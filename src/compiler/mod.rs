@@ -9,49 +9,6 @@ use super::value::Value;
 use token::*;
 use scanner::Scanner;
 
-static rules: [ParseRule; 40] = [                                              
-    ParseRule::new_both(|compiler| { compiler.grouping() }, Option::None, Precedence::Call),                                    // LEFT_PAREN      
-    ParseRule::new(Precedence::None),                                                                                           // RIGHT_PAREN
-    ParseRule::new(Precedence::None),                                                                                           // LEFT_BRACE
-    ParseRule::new(Precedence::None),                                                                                           // RIGHT_BRACE     
-    ParseRule::new(Precedence::None),                                                                                           // COMMA           
-    ParseRule::new(Precedence::Call),                                                                                           // DOT             
-    ParseRule::new_both(|compiler| { compiler.unary() }, Option::Some(|compiler| { compiler.binary() }), Precedence::Term),     // MINUS           
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Term),                                                   // PLUS            
-    ParseRule::new(Precedence::None),                                                                                           // SEMICOLON       
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Factor),                                                 // SLASH           
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Factor),                                                 // STAR            
-    ParseRule::new(Precedence::None),                                                                                           // BANG            
-    ParseRule::new(Precedence::Equality),                                                                                       // BANG_EQUAL      
-    ParseRule::new(Precedence::None),                                                                                           // EQUAL           
-    ParseRule::new(Precedence::Equality),                                                                                       // EQUAL_EQUAL     
-    ParseRule::new(Precedence::Comparison),                                                                                     // GREATER         
-    ParseRule::new(Precedence::Comparison),                                                                                     // GREATER_EQUAL   
-    ParseRule::new(Precedence::Comparison),                                                                                     // LESS            
-    ParseRule::new(Precedence::Comparison),                                                                                     // LESS_EQUAL      
-    ParseRule::new(Precedence::None),                                                                                           // IDENTIFIER      
-    ParseRule::new(Precedence::None),                                                                                           // STRING          
-    ParseRule::new_both(|compiler| { compiler.number() }, Option::None, Precedence::None ),                                     // NUMBER          
-    ParseRule::new(Precedence::And),                                                                                            // AND             
-    ParseRule::new(Precedence::None),                                                                                           // CLASS           
-    ParseRule::new(Precedence::None),                                                                                           // ELSE            
-    ParseRule::new(Precedence::None),                                                                                           // FALSE           
-    ParseRule::new(Precedence::None),                                                                                           // FOR             
-    ParseRule::new(Precedence::None),                                                                                           // FUN             
-    ParseRule::new(Precedence::None),                                                                                           // IF              
-    ParseRule::new(Precedence::None),                                                                                           // NIL             
-    ParseRule::new(Precedence::Or),                                                                                             // OR              
-    ParseRule::new(Precedence::None),                                                                                           // PRINT           
-    ParseRule::new(Precedence::None),                                                                                           // RETURN          
-    ParseRule::new(Precedence::None),                                                                                           // SUPER           
-    ParseRule::new(Precedence::None),                                                                                           // THIS            
-    ParseRule::new(Precedence::None),                                                                                           // TRUE            
-    ParseRule::new(Precedence::None),                                                                                           // VAR             
-    ParseRule::new(Precedence::None),                                                                                           // WHILE           
-    ParseRule::new(Precedence::None),                                                                                           // ERROR           
-    ParseRule::new(Precedence::None),                                                                                           // EOF             
-];    
-
 pub struct Compiler<'a> {
     scanner: Scanner<'a>,
     compiling_chunk: &'a mut Chunk,
@@ -66,6 +23,7 @@ pub struct Compiler<'a> {
 impl<'a> Compiler<'a> {
     pub fn compile(&mut self, source: &'a String) {
         self.scanner = Scanner::new(source);
+        self.advance();
         self.expression();
         self.consume(Type::EOF, "Expected end of expression.");
         self.end_compiliation();
@@ -77,7 +35,7 @@ impl<'a> Compiler<'a> {
 
     fn number(&mut self) {
         let value: f64 = self.previous.lexeme.parse().expect("Invalid number?");
-        self.emit_opcode(OpCode::OpConstant(Value::Double(value)));
+        self.emit_opcode(OpCode::Constant(Value::Double(value)));
     }
 
     fn grouping(&mut self) {
@@ -90,7 +48,7 @@ impl<'a> Compiler<'a> {
         self.parse_precedence(Precedence::Unary);
 
         match op_type {
-            Type::Minus => self.emit_opcode(OpCode::OpNegate),
+            Type::Minus => self.emit_opcode(OpCode::Negate),
             _ => ()
         }
     }
@@ -103,10 +61,10 @@ impl<'a> Compiler<'a> {
         self.parse_precedence(Precedence::from_usize(rule.precedence.to_usize() + 1));
 
         match op_type {
-            Type::Plus => self.emit_opcode(OpCode::OpAdd),
-            Type::Minus => self.emit_opcode(OpCode::OpSubstract),
-            Type::Star => self.emit_opcode(OpCode::OpMultiply),
-            Type::Slash => self.emit_opcode(OpCode::OpDivide),
+            Type::Plus => self.emit_opcode(OpCode::Add),
+            Type::Minus => self.emit_opcode(OpCode::Substract),
+            Type::Star => self.emit_opcode(OpCode::Multiply),
+            Type::Slash => self.emit_opcode(OpCode::Divide),
             _ => ()
         }
     } 
@@ -119,6 +77,7 @@ impl<'a> Compiler<'a> {
             rule(self); 
         } else { 
             self.error_at(self.current, "Expected expression."); 
+            return;
         }
 
         while precedence.to_usize() <= self.get_rule(self.current.t_type).precedence.to_usize() {
@@ -137,7 +96,7 @@ impl<'a> Compiler<'a> {
 
         loop {
             self.current = self.scanner.scan_token();
-            if let Type::Error = self.current.t_type { break; }
+            if let Type::Error = self.current.t_type { () } else { break; } // TODO: Inverted if-let???
 
             self.error_at_current(self.current.lexeme);
         }
@@ -153,7 +112,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn end_compiliation(&mut self) {
-        self.emit_opcode(OpCode::OpReturn);
+        self.emit_opcode(OpCode::Return);
     }
 
     fn error_at_current(&mut self, message: &str) {
@@ -187,12 +146,12 @@ impl<'a> Compiler<'a> {
             compiling_chunk: chunk,
 
             previous: Token { 
-                t_type: Type::EOF,
+                t_type: Type::Error,
                 lexeme: "\0",
                 line: 0
             },
             current: Token { 
-                t_type: Type::EOF,
+                t_type: Type::Error,
                 lexeme: "\0",
                 line: 0
             },
@@ -248,3 +207,46 @@ impl ParseRule {
         }
     }
 }
+
+static rules: [ParseRule; 40] = [                                              
+    ParseRule::new_both(|compiler| { compiler.grouping() }, Option::None, Precedence::Call),                                    // LEFT_PAREN      
+    ParseRule::new(Precedence::None),                                                                                           // RIGHT_PAREN
+    ParseRule::new(Precedence::None),                                                                                           // LEFT_BRACE
+    ParseRule::new(Precedence::None),                                                                                           // RIGHT_BRACE     
+    ParseRule::new(Precedence::None),                                                                                           // COMMA           
+    ParseRule::new(Precedence::Call),                                                                                           // DOT             
+    ParseRule::new_both(|compiler| { compiler.unary() }, Option::Some(|compiler| { compiler.binary() }), Precedence::Term),     // MINUS           
+    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Term),                                                   // PLUS            
+    ParseRule::new(Precedence::None),                                                                                           // SEMICOLON       
+    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Factor),                                                 // SLASH           
+    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Factor),                                                 // STAR            
+    ParseRule::new(Precedence::None),                                                                                           // BANG            
+    ParseRule::new(Precedence::Equality),                                                                                       // BANG_EQUAL      
+    ParseRule::new(Precedence::None),                                                                                           // EQUAL           
+    ParseRule::new(Precedence::Equality),                                                                                       // EQUAL_EQUAL     
+    ParseRule::new(Precedence::Comparison),                                                                                     // GREATER         
+    ParseRule::new(Precedence::Comparison),                                                                                     // GREATER_EQUAL   
+    ParseRule::new(Precedence::Comparison),                                                                                     // LESS            
+    ParseRule::new(Precedence::Comparison),                                                                                     // LESS_EQUAL      
+    ParseRule::new(Precedence::None),                                                                                           // IDENTIFIER      
+    ParseRule::new(Precedence::None),                                                                                           // STRING          
+    ParseRule::new_both(|compiler| { compiler.number() }, Option::None, Precedence::None ),                                     // NUMBER          
+    ParseRule::new(Precedence::And),                                                                                            // AND             
+    ParseRule::new(Precedence::None),                                                                                           // CLASS           
+    ParseRule::new(Precedence::None),                                                                                           // ELSE            
+    ParseRule::new(Precedence::None),                                                                                           // FALSE           
+    ParseRule::new(Precedence::None),                                                                                           // FOR             
+    ParseRule::new(Precedence::None),                                                                                           // FUN             
+    ParseRule::new(Precedence::None),                                                                                           // IF              
+    ParseRule::new(Precedence::None),                                                                                           // NIL             
+    ParseRule::new(Precedence::Or),                                                                                             // OR              
+    ParseRule::new(Precedence::None),                                                                                           // PRINT           
+    ParseRule::new(Precedence::None),                                                                                           // RETURN          
+    ParseRule::new(Precedence::None),                                                                                           // SUPER           
+    ParseRule::new(Precedence::None),                                                                                           // THIS            
+    ParseRule::new(Precedence::None),                                                                                           // TRUE            
+    ParseRule::new(Precedence::None),                                                                                           // VAR             
+    ParseRule::new(Precedence::None),                                                                                           // WHILE           
+    ParseRule::new(Precedence::None),                                                                                           // ERROR           
+    ParseRule::new(Precedence::None),                                                                                           // EOF             
+];    

@@ -9,10 +9,6 @@ pub struct Scanner<'a> {
 }
 
 impl<'a> Scanner<'a> {
-    fn scan(&mut self, source: &String) {
-
-    }
-
     pub fn scan_token(&mut self) -> Token<'a> {
         self.skip_whitespace();
         self.start = self.current;
@@ -170,6 +166,8 @@ impl<'a> Scanner<'a> {
                 '/' => {
                     if self.peek_twice() == '/' {
                         while self.peek() != '\n' && !self.is_at_end() { self.advance(); }
+                    } else {
+                        return
                     }
                 }
                 _ => return
@@ -196,7 +194,7 @@ impl<'a> Scanner<'a> {
     }
 
     fn peek(&self) -> char {
-        self.chars[self.current]
+        **self.chars.get(self.current).get_or_insert(&'\0')
     }
     
     fn peek_twice(&self) -> char {
@@ -210,7 +208,7 @@ impl<'a> Scanner<'a> {
             chars,
             start: 0,
             current: 0,
-            line: 0
+            line: 1
         }
     }
 }
