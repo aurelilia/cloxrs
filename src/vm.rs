@@ -31,18 +31,13 @@ impl VM {
         loop {
             self.ip += 1;
 
-            match self.get_current_instruction() {
+            match *self.get_current_instruction() {
                 OpCode::Return => {
                     println!("{:?}", self.stack.pop().unwrap());
                     break InterpretResult::Ok
                 },
 
-                // TODO: Don't just copy them!!
-                OpCode::Constant(constant) => self.stack.push(*constant),
-
-                OpCode::False => self.stack.push(Value::Bool(false)),
-                OpCode::True => self.stack.push(Value::Bool(true)),
-                OpCode::Nil => self.stack.push(Value::Nil),
+                OpCode::Constant(constant) => self.stack.push(constant),
 
                 OpCode::Negate | OpCode::Not => {
                     let opcode = *self.get_current_instruction();

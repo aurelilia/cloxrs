@@ -34,11 +34,6 @@ impl<'a> Compiler<'a> {
         self.parse_precedence(Precedence::Assignment);
     }
 
-    fn number(&mut self) {
-        let value: f64 = self.previous.lexeme.parse().expect("Invalid number?");
-        self.emit_opcode(OpCode::Constant(Value::Number(value)));
-    }
-
     fn grouping(&mut self) {
         self.expression();
         self.consume(Type::RightParen, "Expected ')' after expression.");
@@ -59,7 +54,7 @@ impl<'a> Compiler<'a> {
         let op_type = self.previous.t_type;
 
 
-        let rule = self.get_rule(op_type);
+        let rule = Compiler::get_rule(op_type);
         self.parse_precedence(Precedence::from_usize(rule.precedence.to_usize() + 1));
 
         match op_type {
@@ -81,16 +76,20 @@ impl<'a> Compiler<'a> {
 
     fn literal(&mut self) {
         match self.previous.t_type {
-            Type::False => self.emit_opcode(OpCode::False),
-            Type::Nil => self.emit_opcode(OpCode::Nil),
-            Type::True => self.emit_opcode(OpCode::True),
+            Type::False => self.emit_opcode(OpCode::Constant(Value::Bool(false))),
+            Type::Nil => self.emit_opcode(OpCode::Constant(Value::Nil)),
+            Type::True => self.emit_opcode(OpCode::Constant(Value::Bool(true))),
+            Type::Number => {
+                let value: f64 = self.previous.lexeme.parse().expect("Invalid number?");
+                self.emit_opcode(OpCode::Constant(Value::Number(value)));
+            }
             _ => ()
         }
     }
 
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
-        let prefix_rule = self.get_rule(self.previous.t_type).prefix;
+        let prefix_rule = Compiler::get_rule(self.previous.t_type).prefix;
 
         if let Option::Some(rule) = prefix_rule { 
             rule(self); 
@@ -99,15 +98,11 @@ impl<'a> Compiler<'a> {
             return;
         }
 
-        while precedence.to_usize() <= self.get_rule(self.current.t_type).precedence.to_usize() {
+        while precedence.to_usize() <= Compiler::get_rule(self.current.t_type).precedence.to_usize() {
             self.advance();
-            let infix_rule = self.get_rule(self.previous.t_type).infix.expect("Internal error: Unexpected missing infix operation!!");
+            let infix_rule = Compiler::get_rule(self.previous.t_type).infix.expect("Internal error: Unexpected missing infix operation!!");
             infix_rule(self);
         }
-    }
-
-    fn get_rule(&self, t_type: Type) -> &ParseRule {
-        &rules[t_type.to_usize()]
     }
 
     fn advance(&mut self) {
@@ -158,8 +153,8 @@ impl<'a> Compiler<'a> {
         self.panic_mode = true;
     }
 
-    fn current_chunk(&self) -> &Chunk {
-        self.compiling_chunk
+    fn get_rule(t_type: Type) -> &'static ParseRule {
+        &RULES[t_type.to_usize()]
     }
 
     pub fn new(chunk: &'a mut Chunk) -> Compiler<'a> {
@@ -232,7 +227,7 @@ impl ParseRule {
     }
 }
 
-static rules: [ParseRule; 40] = [                                              
+static RULES: [ParseRule; 40] = [                                              
     ParseRule::new_both(|compiler| { compiler.grouping() }, Option::None, Precedence::Call),                                    // LEFT_PAREN      
     ParseRule::new(Precedence::None),                                                                                           // RIGHT_PAREN
     ParseRule::new(Precedence::None),                                                                                           // LEFT_BRACE
@@ -254,7 +249,7 @@ static rules: [ParseRule; 40] = [
     ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Comparison),                                             // LESS_EQUAL      
     ParseRule::new(Precedence::None),                                                                                           // IDENTIFIER      
     ParseRule::new(Precedence::None),                                                                                           // STRING          
-    ParseRule::new_both(|compiler| { compiler.number() }, Option::None, Precedence::None ),                                     // NUMBER          
+    ParseRule::new_both(|compiler| { compiler.literal() }, Option::None, Precedence::None ),                                    // NUMBER          
     ParseRule::new(Precedence::And),                                                                                            // AND             
     ParseRule::new(Precedence::None),                                                                                           // CLASS           
     ParseRule::new(Precedence::None),                                                                                           // ELSE            
