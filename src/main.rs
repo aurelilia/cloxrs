@@ -1,3 +1,7 @@
+#![feature(const_fn)]
+
+#[macro_use] extern crate plain_enum;
+
 mod chunk;
 mod compiler;
 mod disassembler;

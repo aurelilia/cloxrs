@@ -1,10 +1,11 @@
+#[derive(Debug, Clone, Copy)]
 pub struct Token<'t> {
     pub t_type: Type,
     pub lexeme: &'t str,
     pub line: usize
 }
 
-pub enum Type {
+plain_enum_mod!{this, Type {
     LeftParen, RightParen, 
     LeftBrace, RightBrace, 
     Comma, Dot,Minus,Plus,
@@ -22,5 +23,6 @@ pub enum Type {
     Print, Return, Super, This,
     True, Var, While,
 
-    Error, EOF
-}
+    // TODO: Maybe replace errror tokens with Rust error handling
+    Error, EOF,
+}}

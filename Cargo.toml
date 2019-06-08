@@ -5,3 +5,4 @@ authors = ["Ellie Ang. <git@angm.xyz>"]
 edition = "2018"
 
 [dependencies]
+plain_enum = "0.7.0"

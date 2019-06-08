@@ -1,3 +1,4 @@
+use super::compiler::Compiler;
 use super::chunk::Chunk;
 use super::opcode::OpCode;
 use super::value::Value;
@@ -9,8 +10,14 @@ pub struct VM {
 }
 
 impl VM {
-    pub fn interpret(&mut self, source: &String) {
+    pub fn interpret(&mut self, source: &String) -> InterpretResult {
+        self.chunk = Chunk::new();
+        self.ip = 0;
 
+        let mut compiler = Compiler::new(&mut self.chunk); 
+        compiler.compile(source);
+
+        self.run()
     }
 
     // TODO: Error handling. Currently, most incorrect bytecode panics

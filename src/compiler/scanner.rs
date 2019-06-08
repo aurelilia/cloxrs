@@ -1,6 +1,6 @@
 use super::token::{Token, Type};
 
-struct Scanner<'a> {
+pub struct Scanner<'a> {
     source: &'a str,
     chars: Vec<char>,
     start: usize,
@@ -13,7 +13,7 @@ impl<'a> Scanner<'a> {
 
     }
 
-    fn scan_token(&mut self) -> Token {
+    pub fn scan_token(&mut self) -> Token<'a> {
         self.skip_whitespace();
         self.start = self.current;
 
@@ -64,7 +64,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn identifier(&mut self) -> Token {
+    fn identifier(&mut self) -> Token<'a> {
         while self.peek().is_ascii_alphanumeric() || self.peek() == '_' { self.advance(); }
         self.make_token(self.identifier_type())
     }
@@ -114,7 +114,7 @@ impl<'a> Scanner<'a> {
         t_type
     }
 
-    fn number(&mut self) -> Token {
+    fn number(&mut self) -> Token<'a> {
         while self.peek().is_ascii_digit() { self.advance(); }
 
         if self.peek() == '.' && self.peek_twice().is_ascii_digit() {
@@ -125,7 +125,7 @@ impl<'a> Scanner<'a> {
         self.make_token(Type::Number)
     }
 
-    fn string(&mut self) -> Token {
+    fn string(&mut self) -> Token<'a> {
         while self.peek() != '"' && !self.is_at_end() {
             if self.peek() == '\n' { self.line +=1; }
             self.advance();
@@ -139,7 +139,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn make_token(&mut self, t_type: Type) -> Token {
+    fn make_token(&mut self, t_type: Type) -> Token<'a> {
         Token {
             t_type,
             lexeme: &self.source[self.start..self.current],
@@ -203,7 +203,7 @@ impl<'a> Scanner<'a> {
         self.chars[self.current + 1]
     }
 
-    fn new(source: &String) -> Scanner {
+    pub fn new(source: &'a str) -> Scanner {
         let chars: Vec<char> = source.chars().collect();
         Scanner {
             source,
