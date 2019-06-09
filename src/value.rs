@@ -1,11 +1,12 @@
 use std::mem::discriminant;
 use std::ops::*;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Bool(bool),
     Nil,
-    Number(f64)
+    Number(f64),
+    String(String)
 }
 
 impl Value {
@@ -21,12 +22,22 @@ impl Value {
         discriminant(self) == discriminant(other)
     }
 
+    fn to_string(&self) -> String {
+        match self {
+            Value::Bool(val) => val.to_string(),
+            Value::Nil => String::from("nil"),
+            Value::Number(val) => val.to_string(),
+            Value::String(val) => val.clone(),
+        }
+    }
+
     pub fn equal(&self, other: Value) -> Option<Value> {
         if self.same_type_as(&other) {
             Option::Some(Value::Bool(match self {
                 Value::Number(value) => *value == if let Value::Number(val) = other { val } else { 0.0 },
                 Value::Bool(value) => *value == if let Value::Bool(val) = other { val } else { false },
                 Value::Nil => true,
+                Value::String(value) => *value == if let Value::String(val) = other { val } else { String::new() }
             }))
         } else {
             Option::Some(Value::Bool(false))
@@ -64,13 +75,20 @@ impl Add for Value {
     fn add(self, other: Value) -> Option<Value> {
         match self {
             Value::Number(value) => {
-                if let Value::Number(other_val) = other {
-                    Option::Some(Value::Number(value + other_val))
+                match other {
+                    Value::Number(other_val) => Option::Some(Value::Number(value + other_val)),
+                    _ => Option::None
+                }
+            },
+            
+            Value::String(value) => Option::Some(Value::String(value + &other.to_string())),
+            _ => {
+                if let Value::String(other_val) = other {
+                    Option::Some(Value::String(self.to_string() + &other_val))
                 } else {
-                    Option::Some(Value::Number(value))
+                    Option::None
                 }
             }
-            _ => Option::None
         }
     }
 } 

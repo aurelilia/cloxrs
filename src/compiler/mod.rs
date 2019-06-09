@@ -87,6 +87,13 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn string(&mut self) {
+        // Trim leading and trailing "
+        let mut string = String::from(&self.previous.lexeme[1..]);
+        string.pop();
+        self.emit_opcode(OpCode::Constant(Value::String(string)))
+    }
+
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
         let prefix_rule = Compiler::get_rule(self.previous.t_type).prefix;
@@ -248,7 +255,7 @@ static RULES: [ParseRule; 40] = [
     ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Comparison),                                             // LESS            
     ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Comparison),                                             // LESS_EQUAL      
     ParseRule::new(Precedence::None),                                                                                           // IDENTIFIER      
-    ParseRule::new(Precedence::None),                                                                                           // STRING          
+    ParseRule::new_both(|compiler| { compiler.string() }, Option::None, Precedence::Term),                                      // STRING           
     ParseRule::new_both(|compiler| { compiler.literal() }, Option::None, Precedence::None ),                                    // NUMBER          
     ParseRule::new(Precedence::And),                                                                                            // AND             
     ParseRule::new(Precedence::None),                                                                                           // CLASS           

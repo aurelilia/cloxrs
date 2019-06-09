@@ -31,24 +31,22 @@ impl VM {
         loop {
             self.ip += 1;
 
-            match *self.get_current_instruction() {
+            match &self.chunk.code[self.ip - 1].code {
                 OpCode::Return => {
                     println!("{:?}", self.stack.pop().unwrap());
                     break InterpretResult::Ok
                 },
 
-                OpCode::Constant(constant) => self.stack.push(constant),
+                OpCode::Constant(constant) => self.stack.push(constant.clone()),
 
                 OpCode::Negate | OpCode::Not => {
-                    let opcode = *self.get_current_instruction();
-                    let result = self.unary_instruction(&opcode);
+                    let result = self.unary_instruction();
                     self.stack.push(result)
                 }
 
                 OpCode::Add | OpCode::Substract | OpCode::Multiply | OpCode::Divide |
                 OpCode::Equal | OpCode::Greater | OpCode::Less => {
-                    let opcode = *self.get_current_instruction();
-                    let result = self.binary_instruction(&opcode);
+                    let result = self.binary_instruction();
                     self.stack.push(result);
                 },
             }
@@ -63,7 +61,8 @@ impl VM {
         &self.chunk.code[self.ip - 1].code
     }
 
-    fn unary_instruction(&mut self, opcode: &OpCode) -> Value {
+    fn unary_instruction(&mut self) -> Value {
+        let opcode = self.get_current_instruction();
         match opcode {
             OpCode::Negate => -self.stack.pop().unwrap(),
             OpCode::Not => !self.stack.pop().unwrap(),
@@ -74,7 +73,8 @@ impl VM {
         })
     }
 
-    fn binary_instruction(&mut self, opcode: &OpCode) -> Value {
+    fn binary_instruction(&mut self) -> Value {
+        let opcode = &self.chunk.code[self.ip - 1].code; // TODO: get_current_instruction would be an immutabe borrow...
         let b = self.stack.pop().unwrap();
         let a = self.stack.pop().unwrap();
 
