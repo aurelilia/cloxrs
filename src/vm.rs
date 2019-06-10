@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use super::compiler::Compiler;
 use super::chunk::Chunk;
 use super::disassembler;
@@ -7,7 +9,9 @@ use super::value::Value;
 pub struct VM {
     chunk: Chunk,
     ip: usize,
+
     stack: Vec<Value>,
+    globals: HashMap<String, Value>,
 
     had_error: bool
 }
@@ -32,12 +36,23 @@ impl VM {
             self.ip += 1;
 
             match &self.chunk.code[self.ip - 1].code {
-                OpCode::Return => {
-                    println!("{:?}", self.stack.pop().unwrap());
-                    break InterpretResult::Ok
+                OpCode::Constant(constant) => self.stack.push(constant.clone()),
+
+                OpCode::DefineGlobal(global) => {
+                    self.globals.insert(global.to_string(), self.stack.pop().expect("Stack was empty?"));
                 },
 
-                OpCode::Constant(constant) => self.stack.push(constant.clone()),
+                OpCode::GetGlobal(global) => {
+                    let value = self.globals.get(global);
+                    if let Some(value) = value {
+                        self.stack.push(value.clone());
+                    } else {
+                        self.runtime_error(&format!("Undefined variable {}.", global));
+                        break InterpretResult::RuntimeError;
+                    }
+                }
+
+                OpCode::Pop => { self.stack.pop(); },
 
                 OpCode::Negate | OpCode::Not => {
                     let result = self.unary_instruction();
@@ -49,6 +64,10 @@ impl VM {
                     let result = self.binary_instruction();
                     self.stack.push(result);
                 },
+
+                OpCode::Print => println!("{:?}", self.stack.pop()),
+
+                OpCode::Return => break InterpretResult::Ok,
             }
 
             if self.had_error {
@@ -105,6 +124,7 @@ impl VM {
             chunk: Chunk::new(), 
             ip: 0,
             stack: Vec::with_capacity(256),
+            globals: HashMap::with_capacity(16),
             had_error: false
         }
     }

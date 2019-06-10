@@ -1,1 +1,8 @@
-"st" + "rings" + " are " + "cool"
+print 1 + 2;
+print nil;
+print "yay";
+
+var beverage = "cafe au lait";
+var hi = 3.0;
+
+print beverage + hi;

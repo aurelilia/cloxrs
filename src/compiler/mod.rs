@@ -24,14 +24,60 @@ impl<'a> Compiler<'a> {
     pub fn compile(&mut self, source: &'a String) -> bool {
         self.scanner = Scanner::new(source);
         self.advance();
-        self.expression();
-        self.consume(Type::EOF, "Expected end of expression.");
+        
+        while !self.match_next(Type::EOF) {
+            self.declaration();
+        }
+
         self.end_compiliation();
         !self.had_error
     }
     
     fn expression(&mut self) { 
         self.parse_precedence(Precedence::Assignment);
+    }
+
+    fn declaration(&mut self) {
+        if self.match_next(Type::Var) {
+            self.var_declaration();
+        } else {
+            self.statement();
+        }
+
+        if self.panic_mode { self.syncronize(); }
+    }
+
+    fn var_declaration(&mut self) {
+        let global = self.parse_variable("Expected variable name.");
+
+        if self.match_next(Type::Equal) {
+            self.expression();
+        } else {
+            self.emit_opcode(OpCode::Constant(Value::Nil));
+        }
+
+        self.consume(Type::Semicolon, "Expected ';' after variable declaration.");
+        self.define_variable(global);
+    }
+
+    fn statement(&mut self) {
+        if self.match_next(Type::Print) {
+            self.print_statement();
+        } else {
+            self.expression_statement();
+        }
+    }
+
+    fn print_statement(&mut self) {
+        self.expression();
+        self.consume(Type::Semicolon, "Expected ';' after value.");
+        self.emit_opcode(OpCode::Print);
+    }
+
+    fn expression_statement(&mut self) {
+        self.expression();
+        self.consume(Type::Semicolon, "Expected ';' after expression.");
+        self.emit_opcode(OpCode::Pop);
     }
 
     fn grouping(&mut self) {
@@ -93,6 +139,15 @@ impl<'a> Compiler<'a> {
         string.pop();
         self.emit_opcode(OpCode::Constant(Value::String(string)))
     }
+    
+    fn variable(&mut self) {
+        self.named_variable(self.previous);
+    }
+
+    fn named_variable(&mut self, name: Token) {
+        let arg = self.identifier_constant(name);
+        self.emit_opcode(OpCode::GetGlobal(arg))
+    }
 
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
@@ -112,6 +167,19 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn parse_variable(&mut self, message: &str) -> String {
+        self.consume(Type::Identifier, message);
+        self.identifier_constant(self.previous)
+    }
+
+    fn identifier_constant(&mut self, name: Token) -> String { 
+        name.lexeme.to_string()
+    }
+
+    fn define_variable(&mut self, global: String) {
+        self.emit_opcode(OpCode::DefineGlobal(global));
+    }
+
     fn advance(&mut self) {
         self.previous = self.current;
 
@@ -123,9 +191,19 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn match_next(&mut self, t_type: Type) -> bool {
+        if !self.check(t_type) { return false; }
+        self.advance();
+        true
+    }
+
     fn consume(&mut self, t_type: Type, message: &str) {
         if t_type == self.current.t_type { self.advance(); }
         else { self.error_at_current(message); }
+    }
+
+    fn check(&self, t_type: Type) -> bool {
+        t_type == self.current.t_type
     }
 
     fn emit_opcode(&mut self, code: OpCode) {
@@ -158,6 +236,22 @@ impl<'a> Compiler<'a> {
 
         self.had_error = true;
         self.panic_mode = true;
+    }
+
+    fn syncronize(&mut self) {
+        self.panic_mode = false;
+
+        while self.current.t_type != Type::EOF {
+            if self.previous.t_type == Type::Semicolon { return; }
+
+            match self.current.t_type {
+                Type::Class | Type::Fun | Type::Var | Type::For | Type::If | Type::While |
+                Type::Print | Type::Return => return,
+                _ => ()
+            }
+        }
+
+        self.advance();
     }
 
     fn get_rule(t_type: Type) -> &'static ParseRule {
@@ -254,7 +348,7 @@ static RULES: [ParseRule; 40] = [
     ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Comparison),                                             // GREATER_EQUAL   
     ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Comparison),                                             // LESS            
     ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Comparison),                                             // LESS_EQUAL      
-    ParseRule::new(Precedence::None),                                                                                           // IDENTIFIER      
+    ParseRule::new_both(|compiler| { compiler.variable() }, Option::None, Precedence::None),                                    // IDENTIFIER      
     ParseRule::new_both(|compiler| { compiler.string() }, Option::None, Precedence::Term),                                      // STRING           
     ParseRule::new_both(|compiler| { compiler.literal() }, Option::None, Precedence::None ),                                    // NUMBER          
     ParseRule::new(Precedence::And),                                                                                            // AND             
