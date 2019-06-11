@@ -13,7 +13,7 @@ pub enum OpCode {
 
     Print,
 
-    Jump(usize), JumpIfFalse(usize),
+    Jump(usize), JumpIfFalse(usize), Loop(usize),
 
     Return
 }

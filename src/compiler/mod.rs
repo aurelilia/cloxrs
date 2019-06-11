@@ -67,6 +67,7 @@ impl<'a> Compiler<'a> {
         match () {
             _ if self.match_next(Type::Print) => self.print_statement(),
             _ if self.match_next(Type::If) => self.if_statement(),
+            _ if self.match_next(Type::While) => self.while_statement(),
             _ if self.match_next(Type::LeftBrace) => {
                 self.begin_scope();
                 self.block();
@@ -96,6 +97,23 @@ impl<'a> Compiler<'a> {
 
         if self.match_next(Type::Else) { self.statement(); }
         self.patch_jump(else_jump);
+    }
+
+    fn while_statement(&mut self) {
+        let loop_start = self.compiling_chunk.code.len();
+
+        self.consume(Type::LeftParen, "Expected '(' after 'while'.");
+        self.expression();
+        self.consume(Type::RightParen, "Expected ')' after condition.");
+
+        let exit_jump = self.emit_jump(OpCode::JumpIfFalse(0));
+
+        self.emit_opcode(OpCode::Pop);
+        self.statement();
+        self.emit_loop(loop_start);
+
+        self.patch_jump(exit_jump);
+        self.emit_opcode(OpCode::Pop);
     }
 
     fn expression_statement(&mut self) {
@@ -346,6 +364,11 @@ impl<'a> Compiler<'a> {
             OpCode::JumpIfFalse(_) => OpCode::JumpIfFalse(jump),
             _ => panic!("Jump was tried to be patched, opcode was not a jump!")
         }
+    }
+
+    fn emit_loop(&mut self, start: usize) {
+        let jump = self.compiling_chunk.code.len() - start + 1;
+        self.emit_opcode(OpCode::Loop(jump));
     }
 
     fn end_compiliation(&mut self) {

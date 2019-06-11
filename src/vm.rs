@@ -86,6 +86,8 @@ impl VM {
                     if self.stack.last().expect("Stack was empty?").is_falsey() { self.ip += offset }
                 }
 
+                OpCode::Loop(offset) => self.ip -= offset,
+
                 OpCode::Return => break InterpretResult::Ok,
             }
 
