@@ -18,4 +18,14 @@ print !false + nil;
     }
 }
 
-print a; // Should error
+if (5 > 3) {
+    print "yay for control flow!";
+} else {
+    print "oh no!";
+}
+
+if (false) {
+    print "hmm...";
+} else {
+    print "all according to plan.";
+}

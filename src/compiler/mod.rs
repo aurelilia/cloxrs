@@ -66,6 +66,7 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) {
         match () {
             _ if self.match_next(Type::Print) => self.print_statement(),
+            _ if self.match_next(Type::If) => self.if_statement(),
             _ if self.match_next(Type::LeftBrace) => {
                 self.begin_scope();
                 self.block();
@@ -79,6 +80,22 @@ impl<'a> Compiler<'a> {
         self.expression();
         self.consume(Type::Semicolon, "Expected ';' after value.");
         self.emit_opcode(OpCode::Print);
+    }
+
+    fn if_statement(&mut self) {
+        self.consume(Type::LeftParen, "Expected '(' after 'if'.");
+        self.expression();
+        self.consume(Type::RightParen, "Expected ')' after condition.");
+
+        let then_jump = self.emit_jump(OpCode::JumpIfFalse(0));
+        self.emit_opcode(OpCode::Pop);
+        self.statement();
+        let else_jump = self.emit_jump(OpCode::Jump(0));
+        self.patch_jump(then_jump);
+        self.emit_opcode(OpCode::Pop);
+
+        if self.match_next(Type::Else) { self.statement(); }
+        self.patch_jump(else_jump);
     }
 
     fn expression_statement(&mut self) {
@@ -296,6 +313,21 @@ impl<'a> Compiler<'a> {
     fn emit_opcodes(&mut self, code1: OpCode, code2: OpCode) {
         self.emit_opcode(code1);
         self.emit_opcode(code2);
+    }
+
+    fn emit_jump(&mut self, code: OpCode) -> usize {
+        self.emit_opcode(code);
+        self.compiling_chunk.code.len() - 1
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        let jump = self.compiling_chunk.code.len() - offset - 1;
+
+        self.compiling_chunk.code[offset].code = match self.compiling_chunk.code[offset].code {
+            OpCode::Jump(_) => OpCode::Jump(jump),
+            OpCode::JumpIfFalse(_) => OpCode::JumpIfFalse(jump),
+            _ => panic!("Jump was tried to be patched, opcode was not a jump!")
+        }
     }
 
     fn end_compiliation(&mut self) {

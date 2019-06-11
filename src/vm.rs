@@ -80,6 +80,12 @@ impl VM {
 
                 OpCode::Print => println!("{}", self.stack.pop().expect("Stack was empty?")),
 
+                OpCode::Jump(offset) => self.ip += offset,
+
+                OpCode::JumpIfFalse(offset) => {
+                    if self.stack.last().expect("Stack was empty?").is_falsey() { self.ip += offset }
+                }
+
                 OpCode::Return => break InterpretResult::Ok,
             }
 
