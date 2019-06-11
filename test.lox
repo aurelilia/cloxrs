@@ -6,3 +6,6 @@ var beverage = "cafe au lait";
 var hi = 3.0;
 
 print beverage + hi;
+
+beverage = hi + 6;
+print beverage;

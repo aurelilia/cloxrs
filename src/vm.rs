@@ -52,6 +52,13 @@ impl VM {
                     }
                 }
 
+                OpCode::SetGlobal(global) => {
+                    if let None = self.globals.insert(global.to_string(), self.stack.last().expect("Stack was empty?").clone()) {
+                        self.runtime_error(&format!("Undefined variable {}.", global));
+                        break InterpretResult::RuntimeError;
+                    }
+                }
+
                 OpCode::Pop => { self.stack.pop(); },
 
                 OpCode::Negate | OpCode::Not => {

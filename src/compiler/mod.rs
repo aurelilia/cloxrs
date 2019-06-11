@@ -140,21 +140,28 @@ impl<'a> Compiler<'a> {
         self.emit_opcode(OpCode::Constant(Value::String(string)))
     }
     
-    fn variable(&mut self) {
-        self.named_variable(self.previous);
+    fn variable(&mut self, can_assign: bool) {
+        self.named_variable(self.previous, can_assign);
     }
 
-    fn named_variable(&mut self, name: Token) {
+    fn named_variable(&mut self, name: Token, can_assign: bool) {
         let arg = self.identifier_constant(name);
-        self.emit_opcode(OpCode::GetGlobal(arg))
+
+        if can_assign && self.match_next(Type::Equal) {
+            self.expression();
+            self.emit_opcode(OpCode::SetGlobal(arg))
+        } else {
+            self.emit_opcode(OpCode::GetGlobal(arg))
+        }
     }
 
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
         let prefix_rule = Compiler::get_rule(self.previous.t_type).prefix;
+        let can_assign = precedence <= Precedence::Assignment;
 
         if let Option::Some(rule) = prefix_rule { 
-            rule(self); 
+            rule(self, can_assign);
         } else { 
             self.error_at(self.current, "Expected expression."); 
             return;
@@ -163,7 +170,12 @@ impl<'a> Compiler<'a> {
         while precedence.to_usize() <= Compiler::get_rule(self.current.t_type).precedence.to_usize() {
             self.advance();
             let infix_rule = Compiler::get_rule(self.previous.t_type).infix.expect("Internal error: Unexpected missing infix operation!!");
-            infix_rule(self);
+            infix_rule(self, can_assign);
+        }
+
+        if can_assign && self.match_next(Type::Equal) {
+            self.error_at_current("Invalid assignment target.");
+            self.expression();
         }
     }
 
@@ -297,8 +309,8 @@ plain_enum_mod!{this, Precedence {
 }}
 
 struct ParseRule {
-    prefix: Option<fn(&mut Compiler)>,
-    infix: Option<fn(&mut Compiler)>,
+    prefix: Option<fn(&mut Compiler, bool)>,
+    infix: Option<fn(&mut Compiler, bool)>,
     precedence: Precedence
 }
 
@@ -311,7 +323,7 @@ impl ParseRule {
         }
     }
 
-    const fn new_both(prefix: fn(&mut Compiler), infix: Option<fn(&mut Compiler)>, precedence: Precedence) -> ParseRule {
+    const fn new_both(prefix: fn(&mut Compiler, bool), infix: Option<fn(&mut Compiler, bool)>, precedence: Precedence) -> ParseRule {
         ParseRule {
             prefix: Option::Some(prefix),
             infix,
@@ -319,7 +331,7 @@ impl ParseRule {
         }
     }
 
-    const fn new_infix(infix: fn(&mut Compiler), precedence: Precedence) -> ParseRule {
+    const fn new_infix(infix: fn(&mut Compiler, bool), precedence: Precedence) -> ParseRule {
         ParseRule {
             prefix: Option::None,
             infix: Option::Some(infix),
@@ -329,42 +341,42 @@ impl ParseRule {
 }
 
 static RULES: [ParseRule; 40] = [                                              
-    ParseRule::new_both(|compiler| { compiler.grouping() }, Option::None, Precedence::Call),                                    // LEFT_PAREN      
-    ParseRule::new(Precedence::None),                                                                                           // RIGHT_PAREN
-    ParseRule::new(Precedence::None),                                                                                           // LEFT_BRACE
-    ParseRule::new(Precedence::None),                                                                                           // RIGHT_BRACE     
-    ParseRule::new(Precedence::None),                                                                                           // COMMA           
-    ParseRule::new(Precedence::Call),                                                                                           // DOT             
-    ParseRule::new_both(|compiler| { compiler.unary() }, Option::Some(|compiler| { compiler.binary() }), Precedence::Term),     // MINUS           
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Term),                                                   // PLUS            
-    ParseRule::new(Precedence::None),                                                                                           // SEMICOLON       
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Factor),                                                 // SLASH           
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Factor),                                                 // STAR            
-    ParseRule::new(Precedence::None),                                                                                           // BANG            
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Equality),                                               // BANG_EQUAL            
-    ParseRule::new(Precedence::None),                                                                                           // EQUAL           
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Equality),                                               // EQUAL_EQUAL     
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Comparison),                                             // GREATER         
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Comparison),                                             // GREATER_EQUAL   
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Comparison),                                             // LESS            
-    ParseRule::new_infix(|compiler| { compiler.binary() }, Precedence::Comparison),                                             // LESS_EQUAL      
-    ParseRule::new_both(|compiler| { compiler.variable() }, Option::None, Precedence::None),                                    // IDENTIFIER      
-    ParseRule::new_both(|compiler| { compiler.string() }, Option::None, Precedence::Term),                                      // STRING           
-    ParseRule::new_both(|compiler| { compiler.literal() }, Option::None, Precedence::None ),                                    // NUMBER          
+    ParseRule::new_both(|compiler, _| { compiler.grouping() }, Option::None, Precedence::Call),                                     // LEFT_PAREN      
+    ParseRule::new(Precedence::None),                                                                                               // RIGHT_PAREN
+    ParseRule::new(Precedence::None),                                                                                               // LEFT_BRACE
+    ParseRule::new(Precedence::None),                                                                                               // RIGHT_BRACE     
+    ParseRule::new(Precedence::None),                                                                                               // COMMA           
+    ParseRule::new(Precedence::Call),                                                                                               // DOT             
+    ParseRule::new_both(|compiler, _| { compiler.unary() }, Option::Some(|compiler, _| { compiler.binary() }), Precedence::Term),   // MINUS           
+    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Term),                                                    // PLUS            
+    ParseRule::new(Precedence::None),                                                                                               // SEMICOLON       
+    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Factor),                                                  // SLASH           
+    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Factor),                                                  // STAR            
+    ParseRule::new(Precedence::None),                                                                                               // BANG            
+    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Equality),                                                // BANG_EQUAL            
+    ParseRule::new(Precedence::None),                                                                                               // EQUAL           
+    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Equality),                                                // EQUAL_EQUAL     
+    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Comparison),                                              // GREATER         
+    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Comparison),                                              // GREATER_EQUAL   
+    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Comparison),                                              // LESS            
+    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Comparison),                                              // LESS_EQUAL      
+    ParseRule::new_both(|compiler, can_assign| { compiler.variable(can_assign) }, Option::None, Precedence::None),                  // IDENTIFIER      
+    ParseRule::new_both(|compiler, _| { compiler.string() }, Option::None, Precedence::Term),                                       // STRING           
+    ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None ),                                 // NUMBER          
     ParseRule::new(Precedence::And),                                                                                            // AND             
     ParseRule::new(Precedence::None),                                                                                           // CLASS           
     ParseRule::new(Precedence::None),                                                                                           // ELSE            
-    ParseRule::new_both(|compiler| { compiler.literal() }, Option::None, Precedence::None),                                     // FALSE           
+    ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None),                                  // FALSE           
     ParseRule::new(Precedence::None),                                                                                           // FOR             
     ParseRule::new(Precedence::None),                                                                                           // FUN             
     ParseRule::new(Precedence::None),                                                                                           // IF              
-    ParseRule::new_both(|compiler| { compiler.literal() }, Option::None, Precedence::None),                                     // NIL           
+    ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None),                                  // NIL           
     ParseRule::new(Precedence::Or),                                                                                             // OR              
     ParseRule::new(Precedence::None),                                                                                           // PRINT           
     ParseRule::new(Precedence::None),                                                                                           // RETURN          
     ParseRule::new(Precedence::None),                                                                                           // SUPER           
     ParseRule::new(Precedence::None),                                                                                           // THIS            
-    ParseRule::new_both(|compiler| { compiler.literal() }, Option::None, Precedence::None),                                     // TRUE           
+    ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None),                                  // TRUE           
     ParseRule::new(Precedence::None),                                                                                           // VAR             
     ParseRule::new(Precedence::None),                                                                                           // WHILE           
     ParseRule::new(Precedence::None),                                                                                           // ERROR           

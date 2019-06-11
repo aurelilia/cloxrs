@@ -3,7 +3,7 @@ use super::value::Value;
 #[derive(Debug, Clone)]
 pub enum OpCode {
     Constant(Value), 
-    DefineGlobal(String), GetGlobal(String),
+    DefineGlobal(String), GetGlobal(String), SetGlobal(String),
     Pop,
 
     Add, Substract, Multiply, Divide,
