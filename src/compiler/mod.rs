@@ -68,6 +68,7 @@ impl<'a> Compiler<'a> {
             _ if self.match_next(Type::Print) => self.print_statement(),
             _ if self.match_next(Type::If) => self.if_statement(),
             _ if self.match_next(Type::While) => self.while_statement(),
+            _ if self.match_next(Type::For) => self.for_statement(),
             _ if self.match_next(Type::LeftBrace) => {
                 self.begin_scope();
                 self.block();
@@ -114,6 +115,51 @@ impl<'a> Compiler<'a> {
 
         self.patch_jump(exit_jump);
         self.emit_opcode(OpCode::Pop);
+    }
+
+    fn for_statement(&mut self) {
+        self.begin_scope();
+
+        self.consume(Type::LeftParen, "Expected '(' after 'for'.");
+        
+        if self.match_next(Type::Var) { self.var_declaration(); }
+        else if self.match_next(Type::Semicolon) { }
+        else { self.expression_statement(); }
+
+        let mut loop_start = self.compiling_chunk.code.len();
+
+        let mut exit_jump: usize = 0;
+        if !self.match_next(Type::Semicolon) {
+            self.expression();
+            self.consume(Type::Semicolon, "Expected ';' after loop condition.");
+
+            exit_jump = self.emit_jump(OpCode::JumpIfFalse(0));
+            self.emit_opcode(OpCode::Pop);            
+        }
+
+        if !self.match_next(Type::RightParen) {
+            let body_jump = self.emit_jump(OpCode::Jump(0));
+
+            let increment_start = self.compiling_chunk.code.len();
+            self.expression();
+            self.emit_opcode(OpCode::Pop);
+            self.consume(Type::RightParen, "Expected ')' after for clauses.");
+
+            self.emit_loop(loop_start);
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
+        }
+
+        self.statement();
+
+        self.emit_loop(loop_start);
+
+        if exit_jump != 0 {
+            self.patch_jump(exit_jump);
+            self.emit_opcode(OpCode::Pop);
+        }
+
+        self.end_scope();
     }
 
     fn expression_statement(&mut self) {
