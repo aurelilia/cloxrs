@@ -152,6 +152,24 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn and(&mut self) {
+        let end_jump = self.emit_jump(OpCode::JumpIfFalse(0));
+        self.emit_opcode(OpCode::Pop);
+        self.parse_precedence(Precedence::And);
+        self.patch_jump(end_jump);
+    }
+
+    fn or(&mut self) {
+        let else_jump = self.emit_jump(OpCode::JumpIfFalse(0));
+        let end_jump = self.emit_jump(OpCode::Jump(0));
+
+        self.patch_jump(else_jump);
+        self.emit_opcode(OpCode::Pop);
+
+        self.parse_precedence(Precedence::Or);
+        self.patch_jump(end_jump);
+    }
+
     fn literal(&mut self) {
         match self.previous.t_type {
             Type::False => self.emit_opcode(OpCode::Constant(Value::Bool(false))),
@@ -488,7 +506,7 @@ static RULES: [ParseRule; 40] = [
     ParseRule::new_both(|compiler, can_assign| { compiler.variable(can_assign) }, Option::None, Precedence::None),                  // IDENTIFIER      
     ParseRule::new_both(|compiler, _| { compiler.string() }, Option::None, Precedence::Term),                                       // STRING           
     ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None ),                                 // NUMBER          
-    ParseRule::new(Precedence::And),                                                                                            // AND             
+    ParseRule::new_infix(|compiler, _| { compiler.and() }, Precedence::And),                                                    // AND             
     ParseRule::new(Precedence::None),                                                                                           // CLASS           
     ParseRule::new(Precedence::None),                                                                                           // ELSE            
     ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None),                                  // FALSE           
@@ -496,7 +514,7 @@ static RULES: [ParseRule; 40] = [
     ParseRule::new(Precedence::None),                                                                                           // FUN             
     ParseRule::new(Precedence::None),                                                                                           // IF              
     ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None),                                  // NIL           
-    ParseRule::new(Precedence::Or),                                                                                             // OR              
+    ParseRule::new_infix(|compiler, _| { compiler.or() }, Precedence::Or),                                                      // OR              
     ParseRule::new(Precedence::None),                                                                                           // PRINT           
     ParseRule::new(Precedence::None),                                                                                           // RETURN          
     ParseRule::new(Precedence::None),                                                                                           // SUPER           
