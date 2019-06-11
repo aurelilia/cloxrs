@@ -1,8 +1,13 @@
-# loxrs
+# cloxrs
 
 An interpreter for [Lox](http://craftinginterpreters.com). Written in Rust.
 It follows the 3rd part of the book, and is similar in structure to clox.
 It also replaces some parts of clox by leveraging Rust's features.
+
+### Progress
+
+cloxrs is currently up to chapter 23. It implements all control flow constructs, but no functions
+or classes.
 
 ### Notable differences to clox
 
