@@ -59,6 +59,12 @@ impl VM {
                     }
                 }
 
+                OpCode::GetLocal(local) => self.stack.push(self.stack[*local].clone()),
+
+                OpCode::SetLocal(local) => {
+                    self.stack[*local] = self.stack.last().expect("Stack was empty?").clone();
+                }
+
                 OpCode::Pop => { self.stack.pop(); },
 
                 OpCode::Negate | OpCode::Not => {

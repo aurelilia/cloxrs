@@ -17,7 +17,10 @@ pub struct Compiler<'a> {
     current: Token<'a>,
 
     had_error: bool,
-    panic_mode: bool
+    panic_mode: bool,
+
+    locals: Vec<Local<'a>>,
+    scope_depth: usize
 }
 
 impl<'a> Compiler<'a> {
@@ -61,11 +64,15 @@ impl<'a> Compiler<'a> {
     }
 
     fn statement(&mut self) {
-        if self.match_next(Type::Print) {
-            self.print_statement();
-        } else {
-            self.expression_statement();
-        }
+        match () {
+            _ if self.match_next(Type::Print) => self.print_statement(),
+            _ if self.match_next(Type::LeftBrace) => {
+                self.begin_scope();
+                self.block();
+                self.end_scope();
+            }
+            _ => self.expression_statement()
+        };
     }
 
     fn print_statement(&mut self) {
@@ -78,6 +85,14 @@ impl<'a> Compiler<'a> {
         self.expression();
         self.consume(Type::Semicolon, "Expected ';' after expression.");
         self.emit_opcode(OpCode::Pop);
+    }
+
+    fn block(&mut self) {
+        while !self.check(Type::RightBrace) && !self.check(Type::EOF) {
+            self.declaration();
+        }
+
+        self.consume(Type::RightBrace, "Expected '}' after block.");
     }
 
     fn grouping(&mut self) {
@@ -145,13 +160,23 @@ impl<'a> Compiler<'a> {
     }
 
     fn named_variable(&mut self, name: Token, can_assign: bool) {
-        let arg = self.identifier_constant(name);
+        let get_op;
+        let set_op;
+        let arg = self.resolve_local(name);
+        if let Some(arg) = arg {
+            get_op = OpCode::GetLocal(arg);
+            set_op = OpCode::SetLocal(arg);
+        } else {
+            let arg = self.identifier_constant(name);
+            get_op = OpCode::GetGlobal(arg.clone());
+            set_op = OpCode::SetGlobal(arg);
+        }
 
         if can_assign && self.match_next(Type::Equal) {
             self.expression();
-            self.emit_opcode(OpCode::SetGlobal(arg))
+            self.emit_opcode(set_op);
         } else {
-            self.emit_opcode(OpCode::GetGlobal(arg))
+            self.emit_opcode(get_op);
         }
     }
 
@@ -179,8 +204,22 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn resolve_local(&mut self, name: Token) -> Option<usize> {
+        for (index, local) in self.locals.iter().enumerate().rev() {
+            if name.lexeme == local.name.lexeme {
+                if !local.initialized { self.error_at_current("Cannot read variable in its own initializer."); }
+                return Some(index); 
+            }
+        }
+        return None;
+    }
+
     fn parse_variable(&mut self, message: &str) -> String {
         self.consume(Type::Identifier, message);
+
+        self.declare_variable();
+        if self.scope_depth > 0 { return String::from(""); }
+
         self.identifier_constant(self.previous)
     }
 
@@ -188,8 +227,40 @@ impl<'a> Compiler<'a> {
         name.lexeme.to_string()
     }
 
+    fn declare_variable(&mut self) {
+        if self.scope_depth == 0 { return; }
+
+        let name = self.previous;
+
+        // TODO: Oof
+        let mut local_exists = false;
+        for local in self.locals.iter().rev() {
+            if local.depth < self.scope_depth { break; }
+            if name.lexeme == local.name.lexeme { 
+                local_exists = true;
+                break;
+            }
+        }
+        if local_exists { self.error_at_current("Variable with same name already declared in this scope."); }
+
+        self.add_local(name);
+    }
+
     fn define_variable(&mut self, global: String) {
+        if self.scope_depth > 0 {
+            self.mark_initialized();
+            return; 
+        }
         self.emit_opcode(OpCode::DefineGlobal(global));
+    }
+
+    fn add_local(&mut self, name: Token<'a>) {
+        self.locals.push(Local { name, depth: self.scope_depth, initialized: false });
+    }
+
+    fn mark_initialized(&mut self) {
+        if self.scope_depth == 0 { return; }
+        self.locals.last_mut().unwrap().initialized = true;
     }
 
     fn advance(&mut self) {
@@ -229,6 +300,19 @@ impl<'a> Compiler<'a> {
 
     fn end_compiliation(&mut self) {
         self.emit_opcode(OpCode::Return);
+    }
+
+    fn begin_scope(&mut self) {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self) {
+        self.scope_depth -= 1;
+
+        while self.locals.len() > 0 && self.locals.last().expect("Empty locals?").depth > self.scope_depth {
+            self.emit_opcode(OpCode::Pop);
+            self.locals.pop();
+        }
     }
 
     fn error_at_current(&mut self, message: &str) {
@@ -289,7 +373,10 @@ impl<'a> Compiler<'a> {
             },
 
             had_error: false,
-            panic_mode: false
+            panic_mode: false,
+
+            locals: Vec::with_capacity(8),
+            scope_depth: 0
         }
     }
 }
@@ -307,6 +394,12 @@ plain_enum_mod!{this, Precedence {
     Call,
     Primary,
 }}
+
+struct Local<'a> {
+    name: Token<'a>,
+    depth: usize,
+    initialized: bool
+}
 
 struct ParseRule {
     prefix: Option<fn(&mut Compiler, bool)>,

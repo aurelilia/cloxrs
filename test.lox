@@ -10,3 +10,12 @@ print beverage + hi;
 beverage = hi + 6;
 print beverage;
 print !false + nil;
+
+{
+    var a = "Hello!";
+    {
+        print beverage + a;
+    }
+}
+
+print a; // Should error

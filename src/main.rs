@@ -1,4 +1,5 @@
 #![feature(const_fn)]
+#![feature(bind_by_move_pattern_guards)]
 
 #[macro_use] extern crate plain_enum;
 
