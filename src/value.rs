@@ -1,3 +1,4 @@
+use std::fmt;
 use std::mem::discriminant;
 use std::ops::*;
 
@@ -12,9 +13,9 @@ pub enum Value {
 impl Value {
     pub fn is_falsey(&self) -> bool {
         match self {
-            Value::Bool(value) => *value,
-            Value::Nil => false,
-            _ => true
+            Value::Bool(value) => !*value,
+            Value::Nil => true,
+            _ => false
         }
     }
 
@@ -52,7 +53,7 @@ impl Value {
                 _ => Option::None
             }
         } else {
-            Option::Some(Value::Bool(false))
+            Option::None
         }
     }
         
@@ -64,7 +65,18 @@ impl Value {
                 _ => Option::None
             }
         } else {
-            Option::Some(Value::Bool(false))
+            Option::None
+        }
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Value::Number(num) => write!(f, "{}", num),
+            Value::String(srg) => write!(f, "{}", srg),
+            Value::Bool(boo) => write!(f, "{}", boo),
+            Value::Nil => write!(f, "nil")
         }
     }
 }
@@ -75,20 +87,14 @@ impl Add for Value {
     fn add(self, other: Value) -> Option<Value> {
         match self {
             Value::Number(value) => {
-                match other {
-                    Value::Number(other_val) => Option::Some(Value::Number(value + other_val)),
-                    _ => Option::None
+                if let Value::Number(other_num) = other {
+                    Option::Some(Value::Number(value + other_num))
+                } else {
+                    Option::Some(Value::String(self.to_string() + &other.to_string()))
                 }
             },
             
-            Value::String(value) => Option::Some(Value::String(value + &other.to_string())),
-            _ => {
-                if let Value::String(other_val) = other {
-                    Option::Some(Value::String(self.to_string() + &other_val))
-                } else {
-                    Option::None
-                }
-            }
+            _ => Option::Some(Value::String(self.to_string() + &other.to_string()))
         }
     }
 } 

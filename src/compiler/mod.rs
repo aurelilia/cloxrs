@@ -352,7 +352,7 @@ static RULES: [ParseRule; 40] = [
     ParseRule::new(Precedence::None),                                                                                               // SEMICOLON       
     ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Factor),                                                  // SLASH           
     ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Factor),                                                  // STAR            
-    ParseRule::new(Precedence::None),                                                                                               // BANG            
+    ParseRule::new_both(|compiler, _| { compiler.unary() }, Option::None, Precedence::None),                                        // BANG            
     ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Equality),                                                // BANG_EQUAL            
     ParseRule::new(Precedence::None),                                                                                               // EQUAL           
     ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Equality),                                                // EQUAL_EQUAL     

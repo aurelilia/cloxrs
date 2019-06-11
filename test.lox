@@ -9,3 +9,4 @@ print beverage + hi;
 
 beverage = hi + 6;
 print beverage;
+print !false + nil;

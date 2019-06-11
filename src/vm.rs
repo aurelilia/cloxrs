@@ -72,7 +72,7 @@ impl VM {
                     self.stack.push(result);
                 },
 
-                OpCode::Print => println!("{:?}", self.stack.pop()),
+                OpCode::Print => println!("{}", self.stack.pop().expect("Stack was empty?")),
 
                 OpCode::Return => break InterpretResult::Ok,
             }
