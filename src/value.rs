@@ -7,7 +7,7 @@ pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
-    String(String)
+    String(String),
 }
 
 impl Value {
@@ -15,7 +15,7 @@ impl Value {
         match self {
             Value::Bool(value) => !*value,
             Value::Nil => true,
-            _ => false
+            _ => false,
         }
     }
 
@@ -34,38 +34,71 @@ impl Value {
 
     pub fn equal(&self, other: Value) -> Option<Value> {
         if self.same_type_as(&other) {
-            Option::Some(Value::Bool(match self {
-                Value::Number(value) => *value == if let Value::Number(val) = other { val } else { 0.0 },
-                Value::Bool(value) => *value == if let Value::Bool(val) = other { val } else { false },
+            Some(Value::Bool(match self {
+                Value::Number(value) => {
+                    *value
+                        == if let Value::Number(val) = other {
+                            val
+                        } else {
+                            0.0
+                        }
+                }
+                Value::Bool(value) => {
+                    *value
+                        == if let Value::Bool(val) = other {
+                            val
+                        } else {
+                            false
+                        }
+                }
                 Value::Nil => true,
-                Value::String(value) => *value == if let Value::String(val) = other { val } else { String::new() }
+                Value::String(value) => {
+                    *value
+                        == if let Value::String(val) = other {
+                            val
+                        } else {
+                            String::new()
+                        }
+                }
             }))
         } else {
-            Option::Some(Value::Bool(false))
+            Some(Value::Bool(false))
         }
     }
 
     pub fn less(&self, other: Value) -> Option<Value> {
         if self.same_type_as(&other) {
             match self {
-                Value::Number(value) => Option::Some(Value::Bool(
-                    *value < if let Value::Number(val) = other { val } else { 0.0 })),
-                _ => Option::None
+                Value::Number(value) => Some(Value::Bool(
+                    *value
+                        < if let Value::Number(val) = other {
+                            val
+                        } else {
+                            0.0
+                        },
+                )),
+                _ => None,
             }
         } else {
-            Option::None
+            None
         }
     }
-        
+
     pub fn greater(&self, other: Value) -> Option<Value> {
         if self.same_type_as(&other) {
             match self {
-                Value::Number(value) => Option::Some(Value::Bool(
-                    *value > if let Value::Number(val) = other { val } else { 0.0 })),
-                _ => Option::None
+                Value::Number(value) => Some(Value::Bool(
+                    *value
+                        > if let Value::Number(val) = other {
+                            val
+                        } else {
+                            0.0
+                        },
+                )),
+                _ => None,
             }
         } else {
-            Option::None
+            None
         }
     }
 }
@@ -76,7 +109,7 @@ impl fmt::Display for Value {
             Value::Number(num) => write!(f, "{}", num),
             Value::String(srg) => write!(f, "{}", srg),
             Value::Bool(boo) => write!(f, "{}", boo),
-            Value::Nil => write!(f, "nil")
+            Value::Nil => write!(f, "nil"),
         }
     }
 }
@@ -88,16 +121,16 @@ impl Add for Value {
         match self {
             Value::Number(value) => {
                 if let Value::Number(other_num) = other {
-                    Option::Some(Value::Number(value + other_num))
+                    Some(Value::Number(value + other_num))
                 } else {
-                    Option::Some(Value::String(self.to_string() + &other.to_string()))
+                    Some(Value::String(self.to_string() + &other.to_string()))
                 }
-            },
-            
-            _ => Option::Some(Value::String(self.to_string() + &other.to_string()))
+            }
+
+            _ => Some(Value::String(self.to_string() + &other.to_string())),
         }
     }
-} 
+}
 
 impl Sub for Value {
     type Output = Option<Value>;
@@ -106,15 +139,15 @@ impl Sub for Value {
         match self {
             Value::Number(value) => {
                 if let Value::Number(other_val) = other {
-                    Option::Some(Value::Number(value - other_val))
+                    Some(Value::Number(value - other_val))
                 } else {
-                    Option::None
+                    None
                 }
             }
-            _ => Option::None
+            _ => None,
         }
     }
-} 
+}
 
 impl Mul for Value {
     type Output = Option<Value>;
@@ -123,15 +156,15 @@ impl Mul for Value {
         match self {
             Value::Number(value) => {
                 if let Value::Number(other_val) = other {
-                    Option::Some(Value::Number(value * other_val))
+                    Some(Value::Number(value * other_val))
                 } else {
-                    Option::None
+                    None
                 }
             }
-            _ => Option::None
+            _ => None,
         }
     }
-} 
+}
 
 impl Div for Value {
     type Output = Option<Value>;
@@ -140,25 +173,23 @@ impl Div for Value {
         match self {
             Value::Number(value) => {
                 if let Value::Number(other_val) = other {
-                    Option::Some(Value::Number(value / other_val))
+                    Some(Value::Number(value / other_val))
                 } else {
-                    Option::None
+                    None
                 }
             }
-            _ => Option::None
+            _ => None,
         }
     }
-} 
+}
 
 impl Neg for Value {
     type Output = Option<Value>;
 
     fn neg(self) -> Option<Value> {
         match self {
-            Value::Number(value) => {
-                Option::Some(Value::Number(-value))
-            }
-            _ => Option::None
+            Value::Number(value) => Some(Value::Number(-value)),
+            _ => None,
         }
     }
 }
@@ -167,6 +198,6 @@ impl Not for Value {
     type Output = Option<Value>;
 
     fn not(self) -> Option<Value> {
-        Option::Some(Value::Bool(self.is_falsey()))
+        Some(Value::Bool(self.is_falsey()))
     }
 }

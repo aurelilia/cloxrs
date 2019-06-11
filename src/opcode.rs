@@ -2,18 +2,29 @@ use super::value::Value;
 
 #[derive(Debug, Clone)]
 pub enum OpCode {
-    Constant(Value), 
-    DefineGlobal(String), GetGlobal(String), SetGlobal(String),
-    GetLocal(usize), SetLocal(usize),
+    Constant(Value),
+    DefineGlobal(String),
+    GetGlobal(String),
+    SetGlobal(String),
+    GetLocal(usize),
+    SetLocal(usize),
     Pop,
 
-    Add, Substract, Multiply, Divide,
-    Negate, Not,
-    Equal, Greater, Less,
+    Add,
+    Substract,
+    Multiply,
+    Divide,
+    Negate,
+    Not,
+    Equal,
+    Greater,
+    Less,
 
     Print,
 
-    Jump(usize), JumpIfFalse(usize), Loop(usize),
+    Jump(usize),
+    JumpIfFalse(usize),
+    Loop(usize),
 
-    Return
+    Return,
 }

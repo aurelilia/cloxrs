@@ -1,6 +1,4 @@
-use super::chunk::{OpCodeLine, Chunk};
-use super::opcode::OpCode;
-
+use super::chunk::{Chunk, OpCodeLine};
 pub fn disassemble_chunk(chunk: &Chunk, name: &str) {
     println!("== {} ==", name);
 
@@ -10,12 +8,8 @@ pub fn disassemble_chunk(chunk: &Chunk, name: &str) {
 }
 
 fn disassemble_instruction(index: usize, instruction: &OpCodeLine) {
-    print!("{:04}  L{:03}  ", index, instruction.line);
-    match instruction.code {
-        _ => { simple_instruction(&instruction.code) }
-    }
-}
-
-fn simple_instruction(instruction: &OpCode) {
-    println!("{:?}", instruction);
+    println!(
+        "{:04}  L{:03}  {:?}",
+        index, instruction.line, instruction.code
+    );
 }

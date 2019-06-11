@@ -13,11 +13,17 @@ impl<'a> Scanner<'a> {
         self.skip_whitespace();
         self.start = self.current;
 
-        if self.is_at_end() { return self.make_token(Type::EOF) }
+        if self.is_at_end() {
+            return self.make_token(Type::EOF);
+        }
         let ch = self.advance();
 
-        if ch.is_ascii_alphabetic() || ch == '_' { return self.identifier() }
-        if ch.is_ascii_digit() { return self.number() }
+        if ch.is_ascii_alphabetic() || ch == '_' {
+            return self.identifier();
+        }
+        if ch.is_ascii_digit() {
+            return self.number();
+        }
 
         match ch {
             // Single-char
@@ -35,33 +41,49 @@ impl<'a> Scanner<'a> {
 
             // Double-char (TODO: Find a way to shrink this to a oneliner...)
             '!' => {
-                let token = if self.match_next('=') { Type::BangEqual } else { Type::Bang };
+                let token = if self.match_next('=') {
+                    Type::BangEqual
+                } else {
+                    Type::Bang
+                };
                 self.make_token(token)
-            },
+            }
             '=' => {
-                let token = if self.match_next('=') { Type::EqualEqual } else { Type::Equal };
+                let token = if self.match_next('=') {
+                    Type::EqualEqual
+                } else {
+                    Type::Equal
+                };
                 self.make_token(token)
-            },
+            }
             '<' => {
-                let token = if self.match_next('=') { Type::LessEqual } else { Type::Less };
+                let token = if self.match_next('=') {
+                    Type::LessEqual
+                } else {
+                    Type::Less
+                };
                 self.make_token(token)
-            },
+            }
             '>' => {
-                let token = if self.match_next('=') { Type::GreaterEqual } else { Type::Greater };
+                let token = if self.match_next('=') {
+                    Type::GreaterEqual
+                } else {
+                    Type::Greater
+                };
                 self.make_token(token)
-            },
+            }
 
             // Literals
             '"' => self.string(),
 
-            _ => {
-                self.error_token("Unexpected symbol.")
-            }
+            _ => self.error_token("Unexpected symbol."),
         }
     }
 
     fn identifier(&mut self) -> Token<'a> {
-        while self.peek().is_ascii_alphanumeric() || self.peek() == '_' { self.advance(); }
+        while self.peek().is_ascii_alphanumeric() || self.peek() == '_' {
+            self.advance();
+        }
         self.make_token(self.identifier_type())
     }
 
@@ -79,24 +101,20 @@ impl<'a> Scanner<'a> {
             'v' => self.check_identifier_keyword(1, &['a', 'r'], Type::Var),
             'w' => self.check_identifier_keyword(1, &['h', 'i', 'l', 'e'], Type::While),
 
-            'f' => {
-                match self.chars[self.start + 1] {
-                    'a' => self.check_identifier_keyword(2, &['l', 's', 'e'], Type::False),
-                    'o' => self.check_identifier_keyword(2, &['r'], Type::For),
-                    'u' => self.check_identifier_keyword(2, &['n'], Type::Fun),
-                    _ => Type::Identifier
-                }
+            'f' => match self.chars[self.start + 1] {
+                'a' => self.check_identifier_keyword(2, &['l', 's', 'e'], Type::False),
+                'o' => self.check_identifier_keyword(2, &['r'], Type::For),
+                'u' => self.check_identifier_keyword(2, &['n'], Type::Fun),
+                _ => Type::Identifier,
             },
-            
-            't' => {
-                match self.chars[self.start + 1] {
-                    'h' => self.check_identifier_keyword(2, &['i', 's'], Type::This),
-                    'r' => self.check_identifier_keyword(2, &['u', 'e'], Type::True),
-                    _ => Type::Identifier
-                }
-            }
 
-            _ => Type::Identifier
+            't' => match self.chars[self.start + 1] {
+                'h' => self.check_identifier_keyword(2, &['i', 's'], Type::This),
+                'r' => self.check_identifier_keyword(2, &['u', 'e'], Type::True),
+                _ => Type::Identifier,
+            },
+
+            _ => Type::Identifier,
         }
     }
 
@@ -104,18 +122,24 @@ impl<'a> Scanner<'a> {
         // Loop all chars in the pattern; if one does not match it is NOT the keyword
         // TODO: This probably matches ex. 'superb' as 'super'... Should fix that
         for ch in 0..pattern.len() {
-            if self.chars[self.start + start + ch] != pattern[ch] { return Type::Identifier; }
+            if self.chars[self.start + start + ch] != pattern[ch] {
+                return Type::Identifier;
+            }
         }
         // All matched! It is the keyword after all
         t_type
     }
 
     fn number(&mut self) -> Token<'a> {
-        while self.peek().is_ascii_digit() { self.advance(); }
+        while self.peek().is_ascii_digit() {
+            self.advance();
+        }
 
         if self.peek() == '.' && self.peek_twice().is_ascii_digit() {
             self.advance();
-            while self.peek().is_ascii_digit() { self.advance(); }
+            while self.peek().is_ascii_digit() {
+                self.advance();
+            }
         }
 
         self.make_token(Type::Number)
@@ -123,11 +147,13 @@ impl<'a> Scanner<'a> {
 
     fn string(&mut self) -> Token<'a> {
         while self.peek() != '"' && !self.is_at_end() {
-            if self.peek() == '\n' { self.line +=1; }
+            if self.peek() == '\n' {
+                self.line += 1;
+            }
             self.advance();
         }
 
-        if self.is_at_end() { 
+        if self.is_at_end() {
             self.error_token("Unterminated string!")
         } else {
             self.advance();
@@ -139,7 +165,7 @@ impl<'a> Scanner<'a> {
         Token {
             t_type,
             lexeme: &self.source[self.start..self.current],
-            line: self.line
+            line: self.line,
         }
     }
 
@@ -147,7 +173,7 @@ impl<'a> Scanner<'a> {
         Token {
             t_type: Type::Error,
             lexeme: message,
-            line: self.line
+            line: self.line,
         }
     }
 
@@ -161,16 +187,18 @@ impl<'a> Scanner<'a> {
                 '\n' => {
                     self.line += 1;
                     self.advance();
-                },
+                }
 
                 '/' => {
                     if self.peek_twice() == '/' {
-                        while self.peek() != '\n' && !self.is_at_end() { self.advance(); }
+                        while self.peek() != '\n' && !self.is_at_end() {
+                            self.advance();
+                        }
                     } else {
-                        return
+                        return;
                     }
                 }
-                _ => return
+                _ => return,
             }
         }
     }
@@ -196,7 +224,7 @@ impl<'a> Scanner<'a> {
     fn peek(&self) -> char {
         **self.chars.get(self.current).get_or_insert(&'\0')
     }
-    
+
     fn peek_twice(&self) -> char {
         self.chars[self.current + 1]
     }
@@ -208,7 +236,7 @@ impl<'a> Scanner<'a> {
             chars,
             start: 0,
             current: 0,
-            line: 1
+            line: 1,
         }
     }
 }

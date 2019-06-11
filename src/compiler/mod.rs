@@ -3,11 +3,11 @@ mod token;
 
 use plain_enum::TPlainEnum;
 
-use super::chunk::{OpCodeLine, Chunk};
+use super::chunk::{Chunk, OpCodeLine};
 use super::opcode::OpCode;
 use super::value::Value;
-use token::*;
 use scanner::Scanner;
+use token::*;
 
 pub struct Compiler<'a> {
     scanner: Scanner<'a>,
@@ -20,14 +20,14 @@ pub struct Compiler<'a> {
     panic_mode: bool,
 
     locals: Vec<Local<'a>>,
-    scope_depth: usize
+    scope_depth: usize,
 }
 
 impl<'a> Compiler<'a> {
     pub fn compile(&mut self, source: &'a String) -> bool {
         self.scanner = Scanner::new(source);
         self.advance();
-        
+
         while !self.match_next(Type::EOF) {
             self.declaration();
         }
@@ -35,8 +35,8 @@ impl<'a> Compiler<'a> {
         self.end_compiliation();
         !self.had_error
     }
-    
-    fn expression(&mut self) { 
+
+    fn expression(&mut self) {
         self.parse_precedence(Precedence::Assignment);
     }
 
@@ -47,7 +47,9 @@ impl<'a> Compiler<'a> {
             self.statement();
         }
 
-        if self.panic_mode { self.syncronize(); }
+        if self.panic_mode {
+            self.syncronize();
+        }
     }
 
     fn var_declaration(&mut self) {
@@ -74,7 +76,7 @@ impl<'a> Compiler<'a> {
                 self.block();
                 self.end_scope();
             }
-            _ => self.expression_statement()
+            _ => self.expression_statement(),
         };
     }
 
@@ -96,7 +98,9 @@ impl<'a> Compiler<'a> {
         self.patch_jump(then_jump);
         self.emit_opcode(OpCode::Pop);
 
-        if self.match_next(Type::Else) { self.statement(); }
+        if self.match_next(Type::Else) {
+            self.statement();
+        }
         self.patch_jump(else_jump);
     }
 
@@ -121,10 +125,13 @@ impl<'a> Compiler<'a> {
         self.begin_scope();
 
         self.consume(Type::LeftParen, "Expected '(' after 'for'.");
-        
-        if self.match_next(Type::Var) { self.var_declaration(); }
-        else if self.match_next(Type::Semicolon) { }
-        else { self.expression_statement(); }
+
+        if self.match_next(Type::Var) {
+            self.var_declaration();
+        } else if self.match_next(Type::Semicolon) {
+        } else {
+            self.expression_statement();
+        }
 
         let mut loop_start = self.compiling_chunk.code.len();
 
@@ -134,7 +141,7 @@ impl<'a> Compiler<'a> {
             self.consume(Type::Semicolon, "Expected ';' after loop condition.");
 
             exit_jump = self.emit_jump(OpCode::JumpIfFalse(0));
-            self.emit_opcode(OpCode::Pop);            
+            self.emit_opcode(OpCode::Pop);
         }
 
         if !self.match_next(Type::RightParen) {
@@ -188,13 +195,12 @@ impl<'a> Compiler<'a> {
         match op_type {
             Type::Minus => self.emit_opcode(OpCode::Negate),
             Type::Bang => self.emit_opcode(OpCode::Not),
-            _ => ()
+            _ => (),
         }
     }
 
     fn binary(&mut self) {
         let op_type = self.previous.t_type;
-
 
         let rule = Compiler::get_rule(op_type);
         self.parse_precedence(Precedence::from_usize(rule.precedence.to_usize() + 1));
@@ -212,7 +218,7 @@ impl<'a> Compiler<'a> {
             Type::Less => self.emit_opcode(OpCode::Less),
             Type::LessEqual => self.emit_opcodes(OpCode::Greater, OpCode::Not),
 
-            _ => ()
+            _ => (),
         }
     }
 
@@ -243,7 +249,7 @@ impl<'a> Compiler<'a> {
                 let value: f64 = self.previous.lexeme.parse().expect("Invalid number?");
                 self.emit_opcode(OpCode::Constant(Value::Number(value)));
             }
-            _ => ()
+            _ => (),
         }
     }
 
@@ -253,7 +259,7 @@ impl<'a> Compiler<'a> {
         string.pop();
         self.emit_opcode(OpCode::Constant(Value::String(string)))
     }
-    
+
     fn variable(&mut self, can_assign: bool) {
         self.named_variable(self.previous, can_assign);
     }
@@ -284,16 +290,22 @@ impl<'a> Compiler<'a> {
         let prefix_rule = Compiler::get_rule(self.previous.t_type).prefix;
         let can_assign = precedence <= Precedence::Assignment;
 
-        if let Option::Some(rule) = prefix_rule { 
+        if let Some(rule) = prefix_rule {
             rule(self, can_assign);
-        } else { 
-            self.error_at(self.current, "Expected expression."); 
+        } else {
+            self.error_at(self.current, "Expected expression.");
             return;
         }
 
-        while precedence.to_usize() <= Compiler::get_rule(self.current.t_type).precedence.to_usize() {
+        while precedence.to_usize()
+            <= Compiler::get_rule(self.current.t_type)
+                .precedence
+                .to_usize()
+        {
             self.advance();
-            let infix_rule = Compiler::get_rule(self.previous.t_type).infix.expect("Internal error: Unexpected missing infix operation!!");
+            let infix_rule = Compiler::get_rule(self.previous.t_type)
+                .infix
+                .expect("Internal error: Unexpected missing infix operation!!");
             infix_rule(self, can_assign);
         }
 
@@ -306,8 +318,10 @@ impl<'a> Compiler<'a> {
     fn resolve_local(&mut self, name: Token) -> Option<usize> {
         for (index, local) in self.locals.iter().enumerate().rev() {
             if name.lexeme == local.name.lexeme {
-                if !local.initialized { self.error_at_current("Cannot read variable in its own initializer."); }
-                return Some(index); 
+                if !local.initialized {
+                    self.error_at_current("Cannot read variable in its own initializer.");
+                }
+                return Some(index);
             }
         }
         return None;
@@ -317,30 +331,38 @@ impl<'a> Compiler<'a> {
         self.consume(Type::Identifier, message);
 
         self.declare_variable();
-        if self.scope_depth > 0 { return String::from(""); }
+        if self.scope_depth > 0 {
+            return String::from("");
+        }
 
         self.identifier_constant(self.previous)
     }
 
-    fn identifier_constant(&mut self, name: Token) -> String { 
+    fn identifier_constant(&mut self, name: Token) -> String {
         name.lexeme.to_string()
     }
 
     fn declare_variable(&mut self) {
-        if self.scope_depth == 0 { return; }
+        if self.scope_depth == 0 {
+            return;
+        }
 
         let name = self.previous;
 
         // TODO: Oof
         let mut local_exists = false;
         for local in self.locals.iter().rev() {
-            if local.depth < self.scope_depth { break; }
-            if name.lexeme == local.name.lexeme { 
+            if local.depth < self.scope_depth {
+                break;
+            }
+            if name.lexeme == local.name.lexeme {
                 local_exists = true;
                 break;
             }
         }
-        if local_exists { self.error_at_current("Variable with same name already declared in this scope."); }
+        if local_exists {
+            self.error_at_current("Variable with same name already declared in this scope.");
+        }
 
         self.add_local(name);
     }
@@ -348,17 +370,23 @@ impl<'a> Compiler<'a> {
     fn define_variable(&mut self, global: String) {
         if self.scope_depth > 0 {
             self.mark_initialized();
-            return; 
+            return;
         }
         self.emit_opcode(OpCode::DefineGlobal(global));
     }
 
     fn add_local(&mut self, name: Token<'a>) {
-        self.locals.push(Local { name, depth: self.scope_depth, initialized: false });
+        self.locals.push(Local {
+            name,
+            depth: self.scope_depth,
+            initialized: false,
+        });
     }
 
     fn mark_initialized(&mut self) {
-        if self.scope_depth == 0 { return; }
+        if self.scope_depth == 0 {
+            return;
+        }
         self.locals.last_mut().unwrap().initialized = true;
     }
 
@@ -367,21 +395,30 @@ impl<'a> Compiler<'a> {
 
         loop {
             self.current = self.scanner.scan_token();
-            if let Type::Error = self.current.t_type { () } else { break; } // TODO: Inverted if-let???
+            if let Type::Error = self.current.t_type {
+                ()
+            } else {
+                break;
+            } // TODO: Inverted if-let???
 
             self.error_at_current(self.current.lexeme);
         }
     }
 
     fn match_next(&mut self, t_type: Type) -> bool {
-        if !self.check(t_type) { return false; }
+        if !self.check(t_type) {
+            return false;
+        }
         self.advance();
         true
     }
 
     fn consume(&mut self, t_type: Type, message: &str) {
-        if t_type == self.current.t_type { self.advance(); }
-        else { self.error_at_current(message); }
+        if t_type == self.current.t_type {
+            self.advance();
+        } else {
+            self.error_at_current(message);
+        }
     }
 
     fn check(&self, t_type: Type) -> bool {
@@ -389,7 +426,10 @@ impl<'a> Compiler<'a> {
     }
 
     fn emit_opcode(&mut self, code: OpCode) {
-        self.compiling_chunk.code.push(OpCodeLine { code, line: self.previous.line })
+        self.compiling_chunk.code.push(OpCodeLine {
+            code,
+            line: self.previous.line,
+        })
     }
 
     fn emit_opcodes(&mut self, code1: OpCode, code2: OpCode) {
@@ -408,7 +448,7 @@ impl<'a> Compiler<'a> {
         self.compiling_chunk.code[offset].code = match self.compiling_chunk.code[offset].code {
             OpCode::Jump(_) => OpCode::Jump(jump),
             OpCode::JumpIfFalse(_) => OpCode::JumpIfFalse(jump),
-            _ => panic!("Jump was tried to be patched, opcode was not a jump!")
+            _ => panic!("Jump was tried to be patched, opcode was not a jump!"),
         }
     }
 
@@ -428,7 +468,9 @@ impl<'a> Compiler<'a> {
     fn end_scope(&mut self) {
         self.scope_depth -= 1;
 
-        while self.locals.len() > 0 && self.locals.last().expect("Empty locals?").depth > self.scope_depth {
+        while self.locals.len() > 0
+            && self.locals.last().expect("Empty locals?").depth > self.scope_depth
+        {
             self.emit_opcode(OpCode::Pop);
             self.locals.pop();
         }
@@ -439,13 +481,15 @@ impl<'a> Compiler<'a> {
     }
 
     fn error_at(&mut self, token: Token, message: &str) {
-        if self.panic_mode { return; }
+        if self.panic_mode {
+            return;
+        }
 
         eprint!("[Line {}] Error", token.line);
         match token.t_type {
             Type::EOF => eprint!(" at end"),
             Type::Error => (),
-            _ => eprint!(" at line {}", token.line)
+            _ => eprint!(" at line {}", token.line),
         }
         eprintln!(": {}", message);
 
@@ -457,12 +501,20 @@ impl<'a> Compiler<'a> {
         self.panic_mode = false;
 
         while self.current.t_type != Type::EOF {
-            if self.previous.t_type == Type::Semicolon { return; }
+            if self.previous.t_type == Type::Semicolon {
+                return;
+            }
 
             match self.current.t_type {
-                Type::Class | Type::Fun | Type::Var | Type::For | Type::If | Type::While |
-                Type::Print | Type::Return => return,
-                _ => ()
+                Type::Class
+                | Type::Fun
+                | Type::Var
+                | Type::For
+                | Type::If
+                | Type::While
+                | Type::Print
+                | Type::Return => return,
+                _ => (),
             }
         }
 
@@ -480,27 +532,27 @@ impl<'a> Compiler<'a> {
             scanner: Scanner::new(""),
             compiling_chunk: chunk,
 
-            previous: Token { 
+            previous: Token {
                 t_type: Type::Error,
                 lexeme: "\0",
-                line: 0
+                line: 0,
             },
-            current: Token { 
+            current: Token {
                 t_type: Type::Error,
                 lexeme: "\0",
-                line: 0
+                line: 0,
             },
 
             had_error: false,
             panic_mode: false,
 
             locals: Vec::with_capacity(8),
-            scope_depth: 0
+            scope_depth: 0,
         }
     }
 }
 
-plain_enum_mod!{this, Precedence {
+plain_enum_mod! {this, Precedence {
     None,
     Assignment,
     Or,
@@ -517,80 +569,92 @@ plain_enum_mod!{this, Precedence {
 struct Local<'a> {
     name: Token<'a>,
     depth: usize,
-    initialized: bool
+    initialized: bool,
 }
 
 struct ParseRule {
     prefix: Option<fn(&mut Compiler, bool)>,
     infix: Option<fn(&mut Compiler, bool)>,
-    precedence: Precedence
+    precedence: Precedence,
 }
 
 impl ParseRule {
     const fn new(precedence: Precedence) -> ParseRule {
         ParseRule {
-            prefix: Option::None,
-            infix: Option::None,
-            precedence
+            prefix: None,
+            infix: None,
+            precedence,
         }
     }
 
-    const fn new_both(prefix: fn(&mut Compiler, bool), infix: Option<fn(&mut Compiler, bool)>, precedence: Precedence) -> ParseRule {
+    const fn new_both(
+        prefix: fn(&mut Compiler, bool),
+        infix: Option<fn(&mut Compiler, bool)>,
+        precedence: Precedence,
+    ) -> ParseRule {
         ParseRule {
-            prefix: Option::Some(prefix),
+            prefix: Some(prefix),
             infix,
-            precedence
+            precedence,
         }
     }
 
     const fn new_infix(infix: fn(&mut Compiler, bool), precedence: Precedence) -> ParseRule {
         ParseRule {
-            prefix: Option::None,
-            infix: Option::Some(infix),
-            precedence
+            prefix: None,
+            infix: Some(infix),
+            precedence,
         }
     }
 }
 
-static RULES: [ParseRule; 40] = [                                              
-    ParseRule::new_both(|compiler, _| { compiler.grouping() }, Option::None, Precedence::Call),                                     // LEFT_PAREN      
-    ParseRule::new(Precedence::None),                                                                                               // RIGHT_PAREN
-    ParseRule::new(Precedence::None),                                                                                               // LEFT_BRACE
-    ParseRule::new(Precedence::None),                                                                                               // RIGHT_BRACE     
-    ParseRule::new(Precedence::None),                                                                                               // COMMA           
-    ParseRule::new(Precedence::Call),                                                                                               // DOT             
-    ParseRule::new_both(|compiler, _| { compiler.unary() }, Option::Some(|compiler, _| { compiler.binary() }), Precedence::Term),   // MINUS           
-    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Term),                                                    // PLUS            
-    ParseRule::new(Precedence::None),                                                                                               // SEMICOLON       
-    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Factor),                                                  // SLASH           
-    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Factor),                                                  // STAR            
-    ParseRule::new_both(|compiler, _| { compiler.unary() }, Option::None, Precedence::None),                                        // BANG            
-    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Equality),                                                // BANG_EQUAL            
-    ParseRule::new(Precedence::None),                                                                                               // EQUAL           
-    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Equality),                                                // EQUAL_EQUAL     
-    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Comparison),                                              // GREATER         
-    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Comparison),                                              // GREATER_EQUAL   
-    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Comparison),                                              // LESS            
-    ParseRule::new_infix(|compiler, _| { compiler.binary() }, Precedence::Comparison),                                              // LESS_EQUAL      
-    ParseRule::new_both(|compiler, can_assign| { compiler.variable(can_assign) }, Option::None, Precedence::None),                  // IDENTIFIER      
-    ParseRule::new_both(|compiler, _| { compiler.string() }, Option::None, Precedence::Term),                                       // STRING           
-    ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None ),                                 // NUMBER          
-    ParseRule::new_infix(|compiler, _| { compiler.and() }, Precedence::And),                                                    // AND             
-    ParseRule::new(Precedence::None),                                                                                           // CLASS           
-    ParseRule::new(Precedence::None),                                                                                           // ELSE            
-    ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None),                                  // FALSE           
-    ParseRule::new(Precedence::None),                                                                                           // FOR             
-    ParseRule::new(Precedence::None),                                                                                           // FUN             
-    ParseRule::new(Precedence::None),                                                                                           // IF              
-    ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None),                                  // NIL           
-    ParseRule::new_infix(|compiler, _| { compiler.or() }, Precedence::Or),                                                      // OR              
-    ParseRule::new(Precedence::None),                                                                                           // PRINT           
-    ParseRule::new(Precedence::None),                                                                                           // RETURN          
-    ParseRule::new(Precedence::None),                                                                                           // SUPER           
-    ParseRule::new(Precedence::None),                                                                                           // THIS            
-    ParseRule::new_both(|compiler, _| { compiler.literal() }, Option::None, Precedence::None),                                  // TRUE           
-    ParseRule::new(Precedence::None),                                                                                           // VAR             
-    ParseRule::new(Precedence::None),                                                                                           // WHILE           
-    ParseRule::new(Precedence::None),                                                                                           // ERROR           
-    ParseRule::new(Precedence::None),                                                                                           // EOF             
-];    
+static RULES: [ParseRule; 40] = [
+    ParseRule::new_both(|compiler, _| compiler.grouping(), None, Precedence::Call), // LEFT_PAREN
+    ParseRule::new(Precedence::None),                                               // RIGHT_PAREN
+    ParseRule::new(Precedence::None),                                               // LEFT_BRACE
+    ParseRule::new(Precedence::None),                                               // RIGHT_BRACE
+    ParseRule::new(Precedence::None),                                               // COMMA
+    ParseRule::new(Precedence::Call),                                               // DOT
+    ParseRule::new_both(
+        |compiler, _| compiler.unary(),
+        Some(|compiler, _| compiler.binary()),
+        Precedence::Term,
+    ), // MINUS
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Term),        // PLUS
+    ParseRule::new(Precedence::None),                                               // SEMICOLON
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Factor),      // SLASH
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Factor),      // STAR
+    ParseRule::new_both(|compiler, _| compiler.unary(), None, Precedence::None),    // BANG
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Equality),    // BANG_EQUAL
+    ParseRule::new(Precedence::None),                                               // EQUAL
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Equality),    // EQUAL_EQUAL
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // GREATER
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // GREATER_EQUAL
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // LESS
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // LESS_EQUAL
+    ParseRule::new_both(
+        |compiler, can_assign| compiler.variable(can_assign),
+        None,
+        Precedence::None,
+    ), // IDENTIFIER
+    ParseRule::new_both(|compiler, _| compiler.string(), None, Precedence::Term),   // STRING
+    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None),  // NUMBER
+    ParseRule::new_infix(|compiler, _| compiler.and(), Precedence::And),            // AND
+    ParseRule::new(Precedence::None),                                               // CLASS
+    ParseRule::new(Precedence::None),                                               // ELSE
+    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None),  // FALSE
+    ParseRule::new(Precedence::None),                                               // FOR
+    ParseRule::new(Precedence::None),                                               // FUN
+    ParseRule::new(Precedence::None),                                               // IF
+    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None),  // NIL
+    ParseRule::new_infix(|compiler, _| compiler.or(), Precedence::Or),              // OR
+    ParseRule::new(Precedence::None),                                               // PRINT
+    ParseRule::new(Precedence::None),                                               // RETURN
+    ParseRule::new(Precedence::None),                                               // SUPER
+    ParseRule::new(Precedence::None),                                               // THIS
+    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None),  // TRUE
+    ParseRule::new(Precedence::None),                                               // VAR
+    ParseRule::new(Precedence::None),                                               // WHILE
+    ParseRule::new(Precedence::None),                                               // ERROR
+    ParseRule::new(Precedence::None),                                               // EOF
+];

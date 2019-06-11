@@ -2,12 +2,12 @@
 pub struct Token<'t> {
     pub t_type: Type,
     pub lexeme: &'t str,
-    pub line: usize
+    pub line: usize,
 }
 
-plain_enum_mod!{this, Type {
-    LeftParen, RightParen, 
-    LeftBrace, RightBrace, 
+plain_enum_mod! {this, Type {
+    LeftParen, RightParen,
+    LeftBrace, RightBrace,
     Comma, Dot,Minus,Plus,
     Semicolon, Slash, Star,
 
