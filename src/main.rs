@@ -12,6 +12,7 @@ mod value;
 mod vm;
 
 use std::{fs, io, process};
+use std::io::Write;
 use vm::VM;
 
 fn main() {
@@ -31,7 +32,10 @@ fn main() {
 fn repl(mut vm: VM) {
     let mut input = String::new();
     loop {
+        input.clear();
+
         print!("> ");
+        io::stdout().flush().ok().expect("Failed to flush stdout!!");
 
         io::stdin()
             .read_line(&mut input)
