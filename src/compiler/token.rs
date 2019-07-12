@@ -23,6 +23,5 @@ plain_enum_mod! {this, Type {
     Print, Return, Super, This,
     True, Var, While,
 
-    // TODO: Maybe replace errror tokens with Rust error handling
     Error, EOF,
 }}

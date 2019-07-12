@@ -350,19 +350,14 @@ impl<'a> Compiler<'a> {
 
         let name = self.previous;
 
-        // TODO: Oof
-        let mut local_exists = false;
         for local in self.locals.iter().rev() {
             if local.depth < self.scope_depth {
                 break;
             }
             if name.lexeme == local.name.lexeme {
-                local_exists = true;
+                self.error_at_current("Variable with same name already declared in this scope.");                
                 break;
             }
-        }
-        if local_exists {
-            self.error_at_current("Variable with same name already declared in this scope.");
         }
 
         self.add_local(name);

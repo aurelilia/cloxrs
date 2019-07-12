@@ -130,7 +130,7 @@ impl VM {
     }
 
     fn binary_instruction(&mut self) -> Value {
-        let opcode = &self.chunk.code[self.ip - 1].code; // TODO: get_current_instruction would be an immutabe borrow...
+        let opcode = &self.chunk.code[self.ip - 1].code;
         let b = self.stack.pop().unwrap();
         let a = self.stack.pop().unwrap();
 
