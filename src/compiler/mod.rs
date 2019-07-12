@@ -303,10 +303,11 @@ impl<'a> Compiler<'a> {
                 .to_usize()
         {
             self.advance();
-            let infix_rule = Compiler::get_rule(self.previous.t_type)
-                .infix
-                .expect("Internal error: Unexpected missing infix operation!!");
-            infix_rule(self, can_assign);
+            let infix_rule = Compiler::get_rule(self.previous.t_type).infix;
+            match infix_rule {
+                Some(rule) => rule(self, can_assign),
+                None => self.error_at(self.previous, "Unexpected infix expression.")
+            }
         }
 
         if can_assign && self.match_next(Type::Equal) {
@@ -398,7 +399,7 @@ impl<'a> Compiler<'a> {
             if let Type::Error = self.current.t_type {
                 ()
             } else {
-                break;
+                break; 
             } // TODO: Inverted if-let???
 
             self.error_at_current(self.current.lexeme);
@@ -615,11 +616,11 @@ static RULES: [ParseRule; 40] = [
     ParseRule::new(Precedence::None),                                               // RIGHT_BRACE
     ParseRule::new(Precedence::None),                                               // COMMA
     ParseRule::new(Precedence::Call),                                               // DOT
-    ParseRule::new_both(
+    ParseRule::new_both(                                                            // MINUS
         |compiler, _| compiler.unary(),
         Some(|compiler, _| compiler.binary()),
         Precedence::Term,
-    ), // MINUS
+    ), 
     ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Term),        // PLUS
     ParseRule::new(Precedence::None),                                               // SEMICOLON
     ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Factor),      // SLASH
@@ -632,11 +633,11 @@ static RULES: [ParseRule; 40] = [
     ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // GREATER_EQUAL
     ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // LESS
     ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // LESS_EQUAL
-    ParseRule::new_both(
+    ParseRule::new_both(                                                            // IDENTIFIER
         |compiler, can_assign| compiler.variable(can_assign),
         None,
         Precedence::None,
-    ), // IDENTIFIER
+    ), 
     ParseRule::new_both(|compiler, _| compiler.string(), None, Precedence::Term),   // STRING
     ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None),  // NUMBER
     ParseRule::new_infix(|compiler, _| compiler.and(), Precedence::And),            // AND

@@ -89,28 +89,28 @@ impl<'a> Scanner<'a> {
 
     fn identifier_type(&self) -> Type {
         match self.chars[self.start] {
-            'a' => self.check_identifier_keyword(1, &['n', 'd'], Type::And),
-            'c' => self.check_identifier_keyword(1, &['l', 'a', 's', 's'], Type::Class),
-            'e' => self.check_identifier_keyword(1, &['l', 's', 'e'], Type::Else),
-            'i' => self.check_identifier_keyword(1, &['f'], Type::If),
-            'n' => self.check_identifier_keyword(1, &['i', 'l'], Type::Nil),
-            'o' => self.check_identifier_keyword(1, &['r'], Type::Or),
-            'p' => self.check_identifier_keyword(1, &['r', 'i', 'n', 't'], Type::Print),
-            'r' => self.check_identifier_keyword(1, &['e', 't', 'u', 'r', 'n'], Type::Return),
-            's' => self.check_identifier_keyword(1, &['u', 'p', 'e', 'r'], Type::Super),
-            'v' => self.check_identifier_keyword(1, &['a', 'r'], Type::Var),
-            'w' => self.check_identifier_keyword(1, &['h', 'i', 'l', 'e'], Type::While),
+            'a' => self.check_identifier_keyword(1, &['n', 'd', ' '], Type::And),
+            'c' => self.check_identifier_keyword(1, &['l', 'a', 's', 's', ' '], Type::Class),
+            'e' => self.check_identifier_keyword(1, &['l', 's', 'e', ' '], Type::Else),
+            'i' => self.check_identifier_keyword(1, &['f', ' '], Type::If),
+            'n' => self.check_identifier_keyword(1, &['i', 'l', ' '], Type::Nil),
+            'o' => self.check_identifier_keyword(1, &['r', ' '], Type::Or),
+            'p' => self.check_identifier_keyword(1, &['r', 'i', 'n', 't', ' '], Type::Print),
+            'r' => self.check_identifier_keyword(1, &['e', 't', 'u', 'r', 'n', ' '], Type::Return),
+            's' => self.check_identifier_keyword(1, &['u', 'p', 'e', 'r', ' '], Type::Super),
+            'v' => self.check_identifier_keyword(1, &['a', 'r', ' '], Type::Var),
+            'w' => self.check_identifier_keyword(1, &['h', 'i', 'l', 'e', ' '], Type::While),
 
             'f' => match self.chars[self.start + 1] {
-                'a' => self.check_identifier_keyword(2, &['l', 's', 'e'], Type::False),
-                'o' => self.check_identifier_keyword(2, &['r'], Type::For),
-                'u' => self.check_identifier_keyword(2, &['n'], Type::Fun),
+                'a' => self.check_identifier_keyword(2, &['l', 's', 'e', ' '], Type::False),
+                'o' => self.check_identifier_keyword(2, &['r', ' '], Type::For),
+                'u' => self.check_identifier_keyword(2, &['n', ' '], Type::Fun),
                 _ => Type::Identifier,
             },
 
             't' => match self.chars[self.start + 1] {
-                'h' => self.check_identifier_keyword(2, &['i', 's'], Type::This),
-                'r' => self.check_identifier_keyword(2, &['u', 'e'], Type::True),
+                'h' => self.check_identifier_keyword(2, &['i', 's', ' '], Type::This),
+                'r' => self.check_identifier_keyword(2, &['u', 'e', ' '], Type::True),
                 _ => Type::Identifier,
             },
 
@@ -120,12 +120,12 @@ impl<'a> Scanner<'a> {
 
     fn check_identifier_keyword(&self, start: usize, pattern: &[char], t_type: Type) -> Type {
         // Loop all chars in the pattern; if one does not match it is NOT the keyword
-        // TODO: This probably matches ex. 'superb' as 'super'... Should fix that
         for ch in 0..pattern.len() {
             if self.chars[self.start + start + ch] != pattern[ch] {
                 return Type::Identifier;
             }
         }
+        
         // All matched! It is the keyword after all
         t_type
     }
