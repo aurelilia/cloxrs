@@ -125,7 +125,7 @@ impl<'a> Scanner<'a> {
                 return Type::Identifier;
             }
         }
-        
+
         // All matched! It is the keyword after all
         t_type
     }

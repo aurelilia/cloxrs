@@ -11,8 +11,8 @@ mod opcode;
 mod value;
 mod vm;
 
-use std::{fs, io, process};
 use std::io::Write;
+use std::{fs, io, process};
 use vm::VM;
 
 fn main() {
