@@ -16,6 +16,7 @@ impl<'a> Scanner<'a> {
         if self.is_at_end() {
             return self.make_token(Type::EOF);
         }
+
         let ch = self.advance();
 
         if ch.is_ascii_alphabetic() || ch == '_' {
@@ -39,45 +40,26 @@ impl<'a> Scanner<'a> {
             '*' => self.make_token(Type::Star),
             '/' => self.make_token(Type::Slash),
 
-            // Double-char (TODO: Find a way to shrink this to a oneliner...)
-            '!' => {
-                let token = if self.match_next('=') {
-                    Type::BangEqual
-                } else {
-                    Type::Bang
-                };
-                self.make_token(token)
-            }
-            '=' => {
-                let token = if self.match_next('=') {
-                    Type::EqualEqual
-                } else {
-                    Type::Equal
-                };
-                self.make_token(token)
-            }
-            '<' => {
-                let token = if self.match_next('=') {
-                    Type::LessEqual
-                } else {
-                    Type::Less
-                };
-                self.make_token(token)
-            }
-            '>' => {
-                let token = if self.match_next('=') {
-                    Type::GreaterEqual
-                } else {
-                    Type::Greater
-                };
-                self.make_token(token)
-            }
+            // Double-char
+            '!' => self.check_double_token('=', Type::BangEqual, Type::Bang),
+            '=' => self.check_double_token('=', Type::EqualEqual, Type::Equal),
+            '<' => self.check_double_token('=', Type::LessEqual, Type::Less),
+            '>' => self.check_double_token('=', Type::GreaterEqual, Type::Greater),
 
             // Literals
             '"' => self.string(),
 
             _ => self.error_token("Unexpected symbol."),
         }
+    }
+
+    fn check_double_token(&mut self, next: char, matched: Type, not_matched: Type) -> Token<'a> {
+        let token = if self.match_next(next) {
+            matched
+        } else {
+            not_matched
+        };
+        self.make_token(token)
     }
 
     fn identifier(&mut self) -> Token<'a> {
@@ -89,28 +71,28 @@ impl<'a> Scanner<'a> {
 
     fn identifier_type(&self) -> Type {
         match self.chars[self.start] {
-            'a' => self.check_identifier_keyword(1, &['n', 'd', ' '], Type::And),
-            'c' => self.check_identifier_keyword(1, &['l', 'a', 's', 's', ' '], Type::Class),
-            'e' => self.check_identifier_keyword(1, &['l', 's', 'e', ' '], Type::Else),
-            'i' => self.check_identifier_keyword(1, &['f', ' '], Type::If),
-            'n' => self.check_identifier_keyword(1, &['i', 'l', ' '], Type::Nil),
-            'o' => self.check_identifier_keyword(1, &['r', ' '], Type::Or),
-            'p' => self.check_identifier_keyword(1, &['r', 'i', 'n', 't', ' '], Type::Print),
-            'r' => self.check_identifier_keyword(1, &['e', 't', 'u', 'r', 'n', ' '], Type::Return),
-            's' => self.check_identifier_keyword(1, &['u', 'p', 'e', 'r', ' '], Type::Super),
-            'v' => self.check_identifier_keyword(1, &['a', 'r', ' '], Type::Var),
-            'w' => self.check_identifier_keyword(1, &['h', 'i', 'l', 'e', ' '], Type::While),
+            'a' => self.check_identifier_keyword(1, &['n', 'd'], Type::And),
+            'c' => self.check_identifier_keyword(1, &['l', 'a', 's', 's'], Type::Class),
+            'e' => self.check_identifier_keyword(1, &['l', 's', 'e'], Type::Else),
+            'i' => self.check_identifier_keyword(1, &['f'], Type::If),
+            'n' => self.check_identifier_keyword(1, &['i', 'l'], Type::Nil),
+            'o' => self.check_identifier_keyword(1, &['r'], Type::Or),
+            'p' => self.check_identifier_keyword(1, &['r', 'i', 'n', 't'], Type::Print),
+            'r' => self.check_identifier_keyword(1, &['e', 't', 'u', 'r', 'n'], Type::Return),
+            's' => self.check_identifier_keyword(1, &['u', 'p', 'e', 'r'], Type::Super),
+            'v' => self.check_identifier_keyword(1, &['a', 'r'], Type::Var),
+            'w' => self.check_identifier_keyword(1, &['h', 'i', 'l', 'e'], Type::While),
 
             'f' => match self.chars[self.start + 1] {
-                'a' => self.check_identifier_keyword(2, &['l', 's', 'e', ' '], Type::False),
-                'o' => self.check_identifier_keyword(2, &['r', ' '], Type::For),
-                'u' => self.check_identifier_keyword(2, &['n', ' '], Type::Fun),
+                'a' => self.check_identifier_keyword(2, &['l', 's', 'e'], Type::False),
+                'o' => self.check_identifier_keyword(2, &['r'], Type::For),
+                'u' => self.check_identifier_keyword(2, &['n'], Type::Fun),
                 _ => Type::Identifier,
             },
 
             't' => match self.chars[self.start + 1] {
-                'h' => self.check_identifier_keyword(2, &['i', 's', ' '], Type::This),
-                'r' => self.check_identifier_keyword(2, &['u', 'e', ' '], Type::True),
+                'h' => self.check_identifier_keyword(2, &['i', 's'], Type::This),
+                'r' => self.check_identifier_keyword(2, &['u', 'e'], Type::True),
                 _ => Type::Identifier,
             },
 
@@ -126,8 +108,12 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        // All matched! It is the keyword after all
-        t_type
+        // If the next char is alphabetic, it is an identifier that starts with a keyword ('superb')
+        return if self.chars[self.start + start + pattern.len()].is_ascii_alphabetic() {
+            Type::Identifier
+        } else {
+            t_type
+        }
     }
 
     fn number(&mut self) -> Token<'a> {
@@ -198,6 +184,7 @@ impl<'a> Scanner<'a> {
                         return;
                     }
                 }
+
                 _ => return,
             }
         }
@@ -208,12 +195,11 @@ impl<'a> Scanner<'a> {
     }
 
     fn match_next(&mut self, expected: char) -> bool {
-        if self.peek() == expected {
+        let matches = self.peek() == expected;
+        if matches {
             self.advance();
-            true
-        } else {
-            false
         }
+        matches
     }
 
     fn advance(&mut self) -> char {
