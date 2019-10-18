@@ -1,7 +1,9 @@
-#[derive(Debug, Clone, Copy)]
-pub struct Token<'t> {
+use std::rc::Rc;
+
+#[derive(Debug, Clone)]
+pub struct Token {
     pub t_type: Type,
-    pub lexeme: &'t str,
+    pub lexeme: Rc<String>,
     pub line: usize,
 }
 

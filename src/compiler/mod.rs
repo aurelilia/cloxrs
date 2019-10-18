@@ -8,23 +8,25 @@ use super::opcode::OpCode;
 use super::value::Value;
 use scanner::Scanner;
 use token::*;
+use std::rc::Rc;
+use std::mem;
 
 pub struct Compiler<'a> {
-    scanner: Scanner<'a>,
+    scanner: Scanner,
     compiling_chunk: &'a mut Chunk,
 
-    previous: Token<'a>,
-    current: Token<'a>,
+    previous: Token,
+    current: Token,
 
     had_error: bool,
     panic_mode: bool,
 
-    locals: Vec<Local<'a>>,
+    locals: Vec<Local>,
     scope_depth: usize,
 }
 
 impl<'a> Compiler<'a> {
-    pub fn compile(&mut self, source: &'a String) -> bool {
+    pub fn compile(&mut self, source: String) -> bool {
         self.scanner = Scanner::new(source);
         self.advance();
 
@@ -48,7 +50,7 @@ impl<'a> Compiler<'a> {
         }
 
         if self.panic_mode {
-            self.syncronize();
+            self.synchronize();
         }
     }
 
@@ -207,7 +209,7 @@ impl<'a> Compiler<'a> {
 
         match op_type {
             Type::Plus => self.emit_opcode(OpCode::Add),
-            Type::Minus => self.emit_opcode(OpCode::Substract),
+            Type::Minus => self.emit_opcode(OpCode::Subtract),
             Type::Star => self.emit_opcode(OpCode::Multiply),
             Type::Slash => self.emit_opcode(OpCode::Divide),
 
@@ -254,27 +256,23 @@ impl<'a> Compiler<'a> {
     }
 
     fn string(&mut self) {
-        // Trim leading and trailing "
-        let mut string = String::from(&self.previous.lexeme[1..]);
-        string.pop();
-        self.emit_opcode(OpCode::Constant(Value::String(string)))
+        self.emit_opcode(OpCode::Constant(Value::String(Rc::clone(&self.previous.lexeme))))
     }
 
     fn variable(&mut self, can_assign: bool) {
-        self.named_variable(self.previous, can_assign);
+        self.named_variable(&self.previous(), can_assign);
     }
 
-    fn named_variable(&mut self, name: Token, can_assign: bool) {
+    fn named_variable(&mut self, name: &Token, can_assign: bool) {
         let get_op;
         let set_op;
-        let arg = self.resolve_local(name);
+        let arg = self.resolve_local(&name);
         if let Some(arg) = arg {
             get_op = OpCode::GetLocal(arg);
             set_op = OpCode::SetLocal(arg);
         } else {
-            let arg = self.identifier_constant(name);
-            get_op = OpCode::GetGlobal(arg.clone());
-            set_op = OpCode::SetGlobal(arg);
+            get_op = OpCode::GetGlobal(Rc::clone(&name.lexeme));
+            set_op = OpCode::SetGlobal(Rc::clone(&name.lexeme));
         }
 
         if can_assign && self.match_next(Type::Equal) {
@@ -293,7 +291,7 @@ impl<'a> Compiler<'a> {
         if let Some(rule) = prefix_rule {
             rule(self, can_assign);
         } else {
-            self.error_at(self.current, "Expected expression.");
+            self.error("Expected expression.");
             return;
         }
 
@@ -306,21 +304,21 @@ impl<'a> Compiler<'a> {
             let infix_rule = Compiler::get_rule(self.previous.t_type).infix;
             match infix_rule {
                 Some(rule) => rule(self, can_assign),
-                None => self.error_at(self.previous, "Unexpected infix expression.")
+                None => self.error("Unexpected infix expression.")
             }
         }
 
         if can_assign && self.match_next(Type::Equal) {
-            self.error_at_current("Invalid assignment target.");
+            self.error("Invalid assignment target.");
             self.expression();
         }
     }
 
-    fn resolve_local(&mut self, name: Token) -> Option<usize> {
+    fn resolve_local(&mut self, name: &Token) -> Option<usize> {
         for (index, local) in self.locals.iter().enumerate().rev() {
             if name.lexeme == local.name.lexeme {
                 if !local.initialized {
-                    self.error_at_current("Cannot read variable in its own initializer.");
+                    self.error("Cannot read variable in its own initializer.");
                 }
                 return Some(index);
             }
@@ -328,19 +326,15 @@ impl<'a> Compiler<'a> {
         return None;
     }
 
-    fn parse_variable(&mut self, message: &str) -> String {
+    fn parse_variable(&mut self, message: &str) -> Option<Rc<String>> {
         self.consume(Type::Identifier, message);
 
         self.declare_variable();
         if self.scope_depth > 0 {
-            return String::from("");
+            return None
         }
 
-        self.identifier_constant(self.previous)
-    }
-
-    fn identifier_constant(&mut self, name: Token) -> String {
-        name.lexeme.to_string()
+        Some(Rc::clone(&self.previous.lexeme))
     }
 
     fn declare_variable(&mut self) {
@@ -348,30 +342,28 @@ impl<'a> Compiler<'a> {
             return;
         }
 
-        let name = self.previous;
-
         for local in self.locals.iter().rev() {
             if local.depth < self.scope_depth {
                 break;
             }
-            if name.lexeme == local.name.lexeme {
-                self.error_at_current("Variable with same name already declared in this scope.");                
+            if self.previous.lexeme == local.name.lexeme {
+                self.error("Variable with same name already declared in this scope.");
                 break;
             }
         }
 
-        self.add_local(name);
+        self.add_local(self.previous.clone());
     }
 
-    fn define_variable(&mut self, global: String) {
-        if self.scope_depth > 0 {
-            self.mark_initialized();
-            return;
+    fn define_variable(&mut self, global: Option<Rc<String>>) {
+        if let Some(name) = global {
+            self.emit_opcode(OpCode::DefineGlobal(Rc::clone(&name)));
+        } else {
+            self.mark_initialized()
         }
-        self.emit_opcode(OpCode::DefineGlobal(global));
     }
 
-    fn add_local(&mut self, name: Token<'a>) {
+    fn add_local(&mut self, name: Token) {
         self.locals.push(Local {
             name,
             depth: self.scope_depth,
@@ -380,24 +372,23 @@ impl<'a> Compiler<'a> {
     }
 
     fn mark_initialized(&mut self) {
-        if self.scope_depth == 0 {
-            return;
-        }
         self.locals.last_mut().unwrap().initialized = true;
     }
 
     fn advance(&mut self) {
-        self.previous = self.current;
-
         loop {
-            self.current = self.scanner.scan_token();
-            if let Type::Error = self.current.t_type {
-                ()
-            } else {
-                break; 
-            } // TODO: Inverted if-let???
+            let tok = self.scanner.scan_token().unwrap_or(Token {
+                t_type: Type::EOF,
+                lexeme: Rc::new("".to_string()),
+                line: 0
+            });
+            self.previous = mem::replace(&mut self.current, tok);
 
-            self.error_at_current(self.current.lexeme);
+            if let Type::Error = self.current.t_type {
+                self.error(&self.current.lexeme.clone());
+            } else {
+                break;
+            }
         }
     }
 
@@ -413,7 +404,7 @@ impl<'a> Compiler<'a> {
         if t_type == self.current.t_type {
             self.advance();
         } else {
-            self.error_at_current(message);
+            self.error(message);
         }
     }
 
@@ -472,20 +463,16 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn error_at_current(&mut self, message: &str) {
-        self.error_at(self.current, message)
-    }
-
-    fn error_at(&mut self, token: Token, message: &str) {
+    fn error(&mut self, message: &str) {
         if self.panic_mode {
             return;
         }
 
-        eprint!("[Line {}] Error", token.line);
-        match token.t_type {
+        eprint!("[Line {}] Error", self.current.line);
+        match self.current.t_type {
             Type::EOF => eprint!(" at end"),
             Type::Error => (),
-            _ => eprint!(" at line {}", token.line),
+            _ => eprint!(" at line {}", self.current.line),
         }
         eprintln!(": {}", message);
 
@@ -493,7 +480,7 @@ impl<'a> Compiler<'a> {
         self.panic_mode = true;
     }
 
-    fn syncronize(&mut self) {
+    fn synchronize(&mut self) {
         self.panic_mode = false;
 
         while self.current.t_type != Type::EOF {
@@ -521,21 +508,29 @@ impl<'a> Compiler<'a> {
         &RULES[t_type.to_usize()]
     }
 
+    fn current(&self) -> Token {
+        self.current.clone()
+    }
+
+    fn previous(&self) -> Token {
+        self.previous.clone()
+    }
+
     pub fn new(chunk: &'a mut Chunk) -> Compiler<'a> {
         // Note: All struct values are initialized to stub values.
         // TODO: Find a way to create a stubbed chunk reference without having to pass one in
         Compiler {
-            scanner: Scanner::new(""),
+            scanner: Scanner::new("".to_string()),
             compiling_chunk: chunk,
 
             previous: Token {
                 t_type: Type::Error,
-                lexeme: "\0",
+                lexeme: Rc::new("\0".to_string()),
                 line: 0,
             },
             current: Token {
                 t_type: Type::Error,
-                lexeme: "\0",
+                lexeme: Rc::new("\0".to_string()),
                 line: 0,
             },
 
@@ -562,8 +557,8 @@ plain_enum_mod! {this, Precedence {
     Primary,
 }}
 
-struct Local<'a> {
-    name: Token<'a>,
+struct Local {
+    name: Token,
     depth: usize,
     initialized: bool,
 }

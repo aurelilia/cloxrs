@@ -1,17 +1,18 @@
 use super::value::Value;
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub enum OpCode {
     Constant(Value),
-    DefineGlobal(String),
-    GetGlobal(String),
-    SetGlobal(String),
+    DefineGlobal(Rc<String>),
+    GetGlobal(Rc<String>),
+    SetGlobal(Rc<String>),
     GetLocal(usize),
     SetLocal(usize),
     Pop,
 
     Add,
-    Substract,
+    Subtract,
     Multiply,
     Divide,
     Negate,

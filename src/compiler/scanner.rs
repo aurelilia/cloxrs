@@ -1,32 +1,25 @@
 use super::token::{Token, Type};
+use std::rc::Rc;
 
-pub struct Scanner<'a> {
-    source: &'a str,
+/// A scanner is an iterator that turns Lox source code into [Token]s.
+pub struct Scanner {
+    /// The chars of the source
     chars: Vec<char>,
+    /// The start position of the token currently being scanned
     start: usize,
+    /// The current position of the scan
     current: usize,
+    /// The line of the current position
     line: usize,
 }
 
-impl<'a> Scanner<'a> {
-    pub fn scan_token(&mut self) -> Token<'a> {
+impl Scanner {
+    pub fn scan_token(&mut self) -> Option<Token> {
         self.skip_whitespace();
         self.start = self.current;
 
-        if self.is_at_end() {
-            return self.make_token(Type::EOF);
-        }
-
-        let ch = self.advance();
-
-        if ch.is_ascii_alphabetic() || ch == '_' {
-            return self.identifier();
-        }
-        if ch.is_ascii_digit() {
-            return self.number();
-        }
-
-        match ch {
+        let ch = self.advance()?;
+        Some(match ch {
             // Single-char
             '(' => self.make_token(Type::LeftParen),
             ')' => self.make_token(Type::RightParen),
@@ -48,12 +41,16 @@ impl<'a> Scanner<'a> {
 
             // Literals
             '"' => self.string(),
+            _ if ch.is_ascii_digit() => self.number(),
+
+            // Identifiers/Keywords
+            _ if (ch.is_alphabetic() || ch == '_') => self.identifier(),
 
             _ => self.error_token("Unexpected symbol."),
-        }
+        })
     }
 
-    fn check_double_token(&mut self, next: char, matched: Type, not_matched: Type) -> Token<'a> {
+    fn check_double_token(&mut self, next: char, matched: Type, not_matched: Type) -> Token {
         let token = if self.match_next(next) {
             matched
         } else {
@@ -62,61 +59,38 @@ impl<'a> Scanner<'a> {
         self.make_token(token)
     }
 
-    fn identifier(&mut self) -> Token<'a> {
-        while self.peek().is_ascii_alphanumeric() || self.peek() == '_' {
+    /// Creates an identifier or keyword token.
+    fn identifier(&mut self) -> Token {
+        while self.peek().is_alphanumeric() || self.peek() == '_' {
             self.advance();
         }
-        self.make_token(self.identifier_type())
-    }
+        let mut token = self.make_token(Type::Identifier);
 
-    fn identifier_type(&self) -> Type {
-        match self.chars[self.start] {
-            'a' => self.check_identifier_keyword(1, &['n', 'd'], Type::And),
-            'c' => self.check_identifier_keyword(1, &['l', 'a', 's', 's'], Type::Class),
-            'e' => self.check_identifier_keyword(1, &['l', 's', 'e'], Type::Else),
-            'i' => self.check_identifier_keyword(1, &['f'], Type::If),
-            'n' => self.check_identifier_keyword(1, &['i', 'l'], Type::Nil),
-            'o' => self.check_identifier_keyword(1, &['r'], Type::Or),
-            'p' => self.check_identifier_keyword(1, &['r', 'i', 'n', 't'], Type::Print),
-            'r' => self.check_identifier_keyword(1, &['e', 't', 'u', 'r', 'n'], Type::Return),
-            's' => self.check_identifier_keyword(1, &['u', 'p', 'e', 'r'], Type::Super),
-            'v' => self.check_identifier_keyword(1, &['a', 'r'], Type::Var),
-            'w' => self.check_identifier_keyword(1, &['h', 'i', 'l', 'e'], Type::While),
-
-            'f' => match self.chars[self.start + 1] {
-                'a' => self.check_identifier_keyword(2, &['l', 's', 'e'], Type::False),
-                'o' => self.check_identifier_keyword(2, &['r'], Type::For),
-                'u' => self.check_identifier_keyword(2, &['n'], Type::Fun),
-                _ => Type::Identifier,
-            },
-
-            't' => match self.chars[self.start + 1] {
-                'h' => self.check_identifier_keyword(2, &['i', 's'], Type::This),
-                'r' => self.check_identifier_keyword(2, &['u', 'e'], Type::True),
-                _ => Type::Identifier,
-            },
+        token.t_type = match &token.lexeme[..] {
+            "and" => Type::And,
+            "class" => Type::Class,
+            "else" => Type::Else,
+            "false" => Type::False,
+            "for" => Type::For,
+            "fun" => Type::Fun,
+            "if" => Type::If,
+            "nil" => Type::Nil,
+            "or" => Type::Or,
+            "print" => Type::Print,
+            "return" => Type::Return,
+            "super" => Type::Super,
+            "this" => Type::This,
+            "true" => Type::True,
+            "var" => Type::Var,
+            "while" => Type::While,
 
             _ => Type::Identifier,
-        }
+        };
+
+        token
     }
 
-    fn check_identifier_keyword(&self, start: usize, pattern: &[char], t_type: Type) -> Type {
-        // Loop all chars in the pattern; if one does not match it is NOT the keyword
-        for ch in 0..pattern.len() {
-            if self.chars[self.start + start + ch] != pattern[ch] {
-                return Type::Identifier;
-            }
-        }
-
-        // If the next char is alphabetic, it is an identifier that starts with a keyword ('superb')
-        return if self.chars[self.start + start + pattern.len()].is_ascii_alphabetic() {
-            Type::Identifier
-        } else {
-            t_type
-        }
-    }
-
-    fn number(&mut self) -> Token<'a> {
+    fn number(&mut self) -> Token {
         while self.peek().is_ascii_digit() {
             self.advance();
         }
@@ -131,7 +105,7 @@ impl<'a> Scanner<'a> {
         self.make_token(Type::Number)
     }
 
-    fn string(&mut self) -> Token<'a> {
+    fn string(&mut self) -> Token {
         while self.peek() != '"' && !self.is_at_end() {
             if self.peek() == '\n' {
                 self.line += 1;
@@ -142,26 +116,31 @@ impl<'a> Scanner<'a> {
         if self.is_at_end() {
             self.error_token("Unterminated string!")
         } else {
+            self.start += 1;
+            let token = self.make_token(Type::String);
             self.advance();
-            self.make_token(Type::String)
+            token
         }
     }
 
-    fn make_token(&mut self, t_type: Type) -> Token<'a> {
+    /// Creates a token based on the current position of self.start and self.current
+    fn make_token(&mut self, t_type: Type) -> Token {
         Token {
             t_type,
-            lexeme: &self.source[self.start..self.current],
+            lexeme: Rc::new(self.chars[(self.start)..(self.current)].iter().collect()),
             line: self.line,
         }
     }
 
-    fn error_token(&mut self, message: &'a str) -> Token<'a> {
+    /// Creates a ScanError token with the given message at the current location
+    fn error_token(&mut self, message: &'static str) -> Token {
         Token {
             t_type: Type::Error,
-            lexeme: message,
+            lexeme: Rc::new(message.to_string()),
             line: self.line,
         }
     }
+
 
     fn skip_whitespace(&mut self) {
         loop {
@@ -202,9 +181,9 @@ impl<'a> Scanner<'a> {
         matches
     }
 
-    fn advance(&mut self) -> char {
+    fn advance(&mut self) -> Option<char> {
         self.current += 1;
-        self.chars[self.current - 1]
+        self.chars.get(self.current - 1).map(|f| *f)
     }
 
     fn peek(&self) -> char {
@@ -215,10 +194,9 @@ impl<'a> Scanner<'a> {
         self.chars[self.current + 1]
     }
 
-    pub fn new(source: &'a str) -> Scanner {
+    pub fn new(source: String) -> Scanner {
         let chars: Vec<char> = source.chars().collect();
         Scanner {
-            source,
             chars,
             start: 0,
             current: 0,

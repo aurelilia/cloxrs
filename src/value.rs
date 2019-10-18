@@ -1,13 +1,14 @@
 use std::fmt;
 use std::mem::discriminant;
 use std::ops::*;
+use std::rc::Rc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, EnumAsGetters)]
 pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
-    String(String),
+    String(Rc<String>),
 }
 
 impl Value {
@@ -28,38 +29,17 @@ impl Value {
             Value::Bool(val) => val.to_string(),
             Value::Nil => String::from("nil"),
             Value::Number(val) => val.to_string(),
-            Value::String(val) => val.clone(),
+            Value::String(val) => String::clone(&*val),
         }
     }
 
     pub fn equal(&self, other: Value) -> Option<Value> {
         if self.same_type_as(&other) {
             Some(Value::Bool(match self {
-                Value::Number(value) => {
-                    *value
-                        == if let Value::Number(val) = other {
-                            val
-                        } else {
-                            0.0
-                        }
-                }
-                Value::Bool(value) => {
-                    *value
-                        == if let Value::Bool(val) = other {
-                            val
-                        } else {
-                            false
-                        }
-                }
+                Value::Number(value) => value == other.as_number(),
+                Value::Bool(value) => value == other.as_bool(),
                 Value::Nil => true,
-                Value::String(value) => {
-                    *value
-                        == if let Value::String(val) = other {
-                            val
-                        } else {
-                            String::new()
-                        }
-                }
+                Value::String(value) => value == other.as_string(),
             }))
         } else {
             Some(Value::Bool(false))
@@ -123,11 +103,11 @@ impl Add for Value {
                 if let Value::Number(other_num) = other {
                     Some(Value::Number(value + other_num))
                 } else {
-                    Some(Value::String(self.to_string() + &other.to_string()))
+                    Some(Value::String(Rc::new(self.to_string() + &other.to_string())))
                 }
             }
 
-            _ => Some(Value::String(self.to_string() + &other.to_string())),
+            _ => Some(Value::String(Rc::new(self.to_string() + &other.to_string()))),
         }
     }
 }

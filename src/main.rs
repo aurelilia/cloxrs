@@ -3,6 +3,8 @@
 
 #[macro_use]
 extern crate plain_enum;
+#[macro_use]
+extern crate enum_methods;
 
 mod chunk;
 mod compiler;
@@ -12,7 +14,7 @@ mod value;
 mod vm;
 
 use std::io::Write;
-use std::{fs, io, process};
+use std::{fs, io, process, mem};
 use vm::VM;
 
 fn main() {
@@ -32,8 +34,6 @@ fn main() {
 fn repl(mut vm: VM) {
     let mut input = String::new();
     loop {
-        input.clear();
-
         print!("> ");
         io::stdout().flush().ok().expect("Failed to flush stdout!!");
 
@@ -41,14 +41,14 @@ fn repl(mut vm: VM) {
             .read_line(&mut input)
             .expect("Failed to read line!!");
 
-        vm.interpret(&input);
+        vm.interpret(mem::replace(&mut input, String::new()));
     }
 }
 
 fn run_file(mut vm: VM, path: &String) {
     let file = fs::read_to_string(path);
     match file {
-        Ok(input) => vm.interpret(&input),
+        Ok(input) => vm.interpret(input),
         Err(_) => {
             println!("Failed to read file.");
             process::exit(74);

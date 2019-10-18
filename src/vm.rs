@@ -5,19 +5,20 @@ use super::compiler::Compiler;
 use super::disassembler;
 use super::opcode::OpCode;
 use super::value::Value;
+use std::rc::Rc;
 
 pub struct VM {
     chunk: Chunk,
     ip: usize,
 
     stack: Vec<Value>,
-    globals: HashMap<String, Value>,
+    globals: HashMap<Rc<String>, Value>,
 
     had_error: bool,
 }
 
 impl VM {
-    pub fn interpret(&mut self, source: &String) -> InterpretResult {
+    pub fn interpret(&mut self, source: String) -> InterpretResult {
         self.chunk = Chunk::new();
         self.ip = 0;
 
@@ -40,7 +41,7 @@ impl VM {
 
                 OpCode::DefineGlobal(global) => {
                     self.globals.insert(
-                        global.to_string(),
+                        Rc::clone(global),
                         self.stack.pop().expect("Stack was empty?"),
                     );
                 }
@@ -57,7 +58,7 @@ impl VM {
 
                 OpCode::SetGlobal(global) => {
                     if let None = self.globals.insert(
-                        global.to_string(),
+                        Rc::clone(global),
                         self.stack.last().expect("Stack was empty?").clone(),
                     ) {
                         self.runtime_error(&format!("Undefined variable {}.", global));
@@ -81,7 +82,7 @@ impl VM {
                 }
 
                 OpCode::Add
-                | OpCode::Substract
+                | OpCode::Subtract
                 | OpCode::Multiply
                 | OpCode::Divide
                 | OpCode::Equal
@@ -136,7 +137,7 @@ impl VM {
 
         match opcode {
             OpCode::Add => a + b,
-            OpCode::Substract => a - b,
+            OpCode::Subtract => a - b,
             OpCode::Multiply => a * b,
             OpCode::Divide => a / b,
 
