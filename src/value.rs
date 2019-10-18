@@ -2,7 +2,6 @@ use std::fmt;
 use std::mem::discriminant;
 use std::ops::*;
 use std::rc::Rc;
-use std::io::Write;
 
 #[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA)]
 pub enum Value {

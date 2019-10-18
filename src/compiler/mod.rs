@@ -11,9 +11,9 @@ use token::*;
 use std::rc::Rc;
 use std::mem;
 
-pub struct Compiler<'a> {
+pub struct Compiler {
     scanner: Scanner,
-    compiling_chunk: &'a mut Chunk,
+    compiling_chunk: Chunk,
 
     previous: Token,
     current: Token,
@@ -25,8 +25,8 @@ pub struct Compiler<'a> {
     scope_depth: usize,
 }
 
-impl<'a> Compiler<'a> {
-    pub fn compile(&mut self, source: String) -> bool {
+impl Compiler {
+    pub fn compile(&mut self, source: String) -> Option<Chunk> {
         self.scanner = Scanner::new(source);
         self.advance();
 
@@ -35,7 +35,11 @@ impl<'a> Compiler<'a> {
         }
 
         self.end_compiliation();
-        !self.had_error
+        if self.had_error {
+            None
+        } else {
+            Some(mem::replace(&mut self.compiling_chunk, Chunk::new()))
+        }
     }
 
     fn expression(&mut self) {
@@ -516,12 +520,12 @@ impl<'a> Compiler<'a> {
         self.previous.clone()
     }
 
-    pub fn new(chunk: &'a mut Chunk) -> Compiler<'a> {
+    pub fn new() -> Compiler {
         // Note: All struct values are initialized to stub values.
         // TODO: Find a way to create a stubbed chunk reference without having to pass one in
         Compiler {
             scanner: Scanner::new("".to_string()),
-            compiling_chunk: chunk,
+            compiling_chunk: Chunk::new(),
 
             previous: Token {
                 t_type: Type::Error,

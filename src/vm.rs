@@ -13,19 +13,16 @@ pub struct VM {
 
     stack: Vec<Value>,
     globals: HashMap<Rc<String>, Value>,
-
-    had_error: bool,
 }
 
 impl VM {
     pub fn interpret(&mut self, source: String) -> InterpretResult {
-        self.chunk = Chunk::new();
         self.ip = 0;
+        let mut compiler = Compiler::new();
 
-        let mut compiler = Compiler::new(&mut self.chunk);
-
-        if compiler.compile(source) {
-            disassembler::disassemble_chunk(&self.chunk, "RESULT");
+        if let Some(chunk) = compiler.compile(source) {
+            disassembler::disassemble_chunk(&chunk, "RESULT");
+            self.chunk = chunk;
             self.run()
         } else {
             InterpretResult::CompileError
@@ -36,49 +33,54 @@ impl VM {
         loop {
             self.ip += 1;
 
-            match &self.chunk.code[self.ip - 1].code {
+            match self.get_current_instruction() {
                 OpCode::Constant(constant) => self.stack.push(constant.clone()),
 
                 OpCode::DefineGlobal(global) => {
                     self.globals.insert(
-                        Rc::clone(global),
-                        self.stack.pop().expect("Stack was empty?"),
+                        global,
+                        self.stack.pop().unwrap(),
                     );
                 }
 
                 OpCode::GetGlobal(global) => {
-                    let value = self.globals.get(global);
+                    let value = self.globals.get(&global);
                     if let Some(value) = value {
                         self.stack.push(value.clone());
                     } else {
-                        self.runtime_error(&format!("Undefined variable {}.", global));
+                        self.print_error(&format!("Undefined variable {}.", global));
                         break InterpretResult::RuntimeError;
                     }
                 }
 
                 OpCode::SetGlobal(global) => {
-                    if let None = self.globals.insert(
-                        Rc::clone(global),
-                        self.stack.last().expect("Stack was empty?").clone(),
-                    ) {
-                        self.runtime_error(&format!("Undefined variable {}.", global));
+                    if self.globals.insert(
+                        Rc::clone(&global),
+                        self.stack_last().clone(),
+                    ).is_none() {
+                        self.print_error(&format!("Undefined variable {}.", global));
                         break InterpretResult::RuntimeError;
                     }
                 }
 
-                OpCode::GetLocal(local) => self.stack.push(self.stack[*local].clone()),
+                OpCode::GetLocal(local) => self.stack.push(self.stack[local].clone()),
 
                 OpCode::SetLocal(local) => {
-                    self.stack[*local] = self.stack.last().expect("Stack was empty?").clone();
+                    self.stack[local] = self.stack_last().clone();
                 }
 
                 OpCode::Pop => {
-                    self.stack.pop();
+                    self.stack_pop();
                 }
 
                 OpCode::Negate | OpCode::Not => {
                     let result = self.unary_instruction();
-                    self.stack.push(result)
+                    if let Some(result) = result {
+                        self.stack.push(result)
+                    } else {
+                        self.print_error("Unary operation had an invalid operand!");
+                        break InterpretResult::RuntimeError
+                    }
                 }
 
                 OpCode::Add
@@ -89,15 +91,20 @@ impl VM {
                 | OpCode::Greater
                 | OpCode::Less => {
                     let result = self.binary_instruction();
-                    self.stack.push(result);
+                    if let Some(result) = result {
+                        self.stack.push(result)
+                    } else {
+                        self.print_error("Binary operation had invalid operands!");
+                        break InterpretResult::RuntimeError
+                    }
                 }
 
-                OpCode::Print => println!("{}", self.stack.pop().expect("Stack was empty?")),
+                OpCode::Print => println!("{}", self.stack_pop()),
 
                 OpCode::Jump(offset) => self.ip += offset,
 
                 OpCode::JumpIfFalse(offset) => {
-                    if self.stack.last().expect("Stack was empty?").is_falsey() {
+                    if self.stack_last().is_falsey() {
                         self.ip += offset
                     }
                 }
@@ -106,34 +113,34 @@ impl VM {
 
                 OpCode::Return => break InterpretResult::Ok,
             }
-
-            if self.had_error {
-                break InterpretResult::RuntimeError;
-            }
         }
     }
 
-    fn get_current_instruction(&self) -> &OpCode {
-        &self.chunk.code[self.ip - 1].code
+    fn get_current_instruction(&self) -> OpCode {
+        self.chunk.code[self.ip - 1].code.clone()
     }
 
-    fn unary_instruction(&mut self) -> Value {
+    fn stack_last(&self) -> &Value {
+        self.stack.last().expect("Stack was empty?")
+    }
+
+    fn stack_pop(&mut self) -> Value {
+        self.stack.pop().expect("Stack was empty?")
+    }
+
+    fn unary_instruction(&mut self) -> Option<Value> {
         let opcode = self.get_current_instruction();
         match opcode {
-            OpCode::Negate => -self.stack.pop().unwrap(),
-            OpCode::Not => !self.stack.pop().unwrap(),
+            OpCode::Negate => -self.stack_pop(),
+            OpCode::Not => !self.stack_pop(),
             _ => panic!("Unary instruction was match with incorrect opcode!"),
         }
-        .unwrap_or_else(|| {
-            self.runtime_error("Unary operation had an invalid operand!");
-            Value::Nil
-        })
     }
 
-    fn binary_instruction(&mut self) -> Value {
-        let opcode = &self.chunk.code[self.ip - 1].code;
-        let b = self.stack.pop().unwrap();
-        let a = self.stack.pop().unwrap();
+    fn binary_instruction(&mut self) -> Option<Value> {
+        let opcode = self.get_current_instruction();
+        let b = self.stack_pop();
+        let a = self.stack_pop();
 
         match opcode {
             OpCode::Add => a + b,
@@ -146,14 +153,10 @@ impl VM {
             OpCode::Less => a.less(b),
 
             _ => panic!("Binary instruction was tried to be processed; opcode was not a binary instruction!!")
-        }.unwrap_or_else(|| {
-            self.runtime_error("Binary operation had invalid operands!");
-            Value::Nil
-        })
+        }
     }
 
-    fn runtime_error(&mut self, message: &str) {
-        self.had_error = true;
+    fn print_error(&mut self, message: &str) {
         println!(
             "[Line {}] Runtime error: {}",
             self.chunk.code[self.ip - 1].line,
@@ -167,7 +170,6 @@ impl VM {
             ip: 0,
             stack: Vec::with_capacity(256),
             globals: HashMap::with_capacity(16),
-            had_error: false,
         }
     }
 }
