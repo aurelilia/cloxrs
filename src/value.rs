@@ -2,8 +2,9 @@ use std::fmt;
 use std::mem::discriminant;
 use std::ops::*;
 use std::rc::Rc;
+use std::io::Write;
 
-#[derive(Debug, Clone, EnumAsGetters)]
+#[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA)]
 pub enum Value {
     Bool(bool),
     Nil,
@@ -24,59 +25,17 @@ impl Value {
         discriminant(self) == discriminant(other)
     }
 
-    fn to_string(&self) -> String {
-        match self {
-            Value::Bool(val) => val.to_string(),
-            Value::Nil => String::from("nil"),
-            Value::Number(val) => val.to_string(),
-            Value::String(val) => String::clone(&*val),
-        }
-    }
-
-    pub fn equal(&self, other: Value) -> Option<Value> {
-        if self.same_type_as(&other) {
-            Some(Value::Bool(match self {
-                Value::Number(value) => value == other.as_number(),
-                Value::Bool(value) => value == other.as_bool(),
-                Value::Nil => true,
-                Value::String(value) => value == other.as_string(),
-            }))
-        } else {
-            Some(Value::Bool(false))
-        }
-    }
-
     pub fn less(&self, other: Value) -> Option<Value> {
-        if self.same_type_as(&other) {
-            match self {
-                Value::Number(value) => Some(Value::Bool(
-                    *value
-                        < if let Value::Number(val) = other {
-                            val
-                        } else {
-                            0.0
-                        },
-                )),
-                _ => None,
-            }
+        if self.same_type_as(&other) && self.is_number() {
+            Some(Value::Bool(self.as_number() < other.as_number()))
         } else {
             None
         }
     }
 
     pub fn greater(&self, other: Value) -> Option<Value> {
-        if self.same_type_as(&other) {
-            match self {
-                Value::Number(value) => Some(Value::Bool(
-                    *value
-                        > if let Value::Number(val) = other {
-                            val
-                        } else {
-                            0.0
-                        },
-                )),
-                _ => None,
-            }
+        if self.same_type_as(&other) && self.is_number() {
+            Some(Value::Bool(self.as_number() > other.as_number()))
         } else {
             None
         }
@@ -86,9 +45,9 @@ impl Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Value::Number(num) => write!(f, "{}", num),
-            Value::String(srg) => write!(f, "{}", srg),
-            Value::Bool(boo) => write!(f, "{}", boo),
+            Value::Number(val) => write!(f, "{}", val),
+            Value::String(val) => write!(f, "{}", val),
+            Value::Bool(val) => write!(f, "{}", val),
             Value::Nil => write!(f, "nil"),
         }
     }
@@ -98,16 +57,10 @@ impl Add for Value {
     type Output = Option<Value>;
 
     fn add(self, other: Value) -> Option<Value> {
-        match self {
-            Value::Number(value) => {
-                if let Value::Number(other_num) = other {
-                    Some(Value::Number(value + other_num))
-                } else {
-                    Some(Value::String(Rc::new(self.to_string() + &other.to_string())))
-                }
-            }
-
-            _ => Some(Value::String(Rc::new(self.to_string() + &other.to_string()))),
+        if self.is_number() && other.is_number() {
+            Some(Value::Number(self.as_number() + other.as_number()))
+        } else {
+            Some(Value::String(Rc::new(self.to_string() + &other.to_string())))
         }
     }
 }
@@ -116,15 +69,10 @@ impl Sub for Value {
     type Output = Option<Value>;
 
     fn sub(self, other: Value) -> Option<Value> {
-        match self {
-            Value::Number(value) => {
-                if let Value::Number(other_val) = other {
-                    Some(Value::Number(value - other_val))
-                } else {
-                    None
-                }
-            }
-            _ => None,
+        if self.is_number() && other.is_number() {
+            Some(Value::Number(self.as_number() - other.as_number()))
+        } else {
+            None
         }
     }
 }
@@ -133,15 +81,10 @@ impl Mul for Value {
     type Output = Option<Value>;
 
     fn mul(self, other: Value) -> Option<Value> {
-        match self {
-            Value::Number(value) => {
-                if let Value::Number(other_val) = other {
-                    Some(Value::Number(value * other_val))
-                } else {
-                    None
-                }
-            }
-            _ => None,
+        if self.is_number() && other.is_number() {
+            Some(Value::Number(self.as_number() - other.as_number()))
+        } else {
+            None
         }
     }
 }
@@ -150,15 +93,10 @@ impl Div for Value {
     type Output = Option<Value>;
 
     fn div(self, other: Value) -> Option<Value> {
-        match self {
-            Value::Number(value) => {
-                if let Value::Number(other_val) = other {
-                    Some(Value::Number(value / other_val))
-                } else {
-                    None
-                }
-            }
-            _ => None,
+        if self.is_number() && other.is_number() {
+            Some(Value::Number(self.as_number() / other.as_number()))
+        } else {
+            None
         }
     }
 }

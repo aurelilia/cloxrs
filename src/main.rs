@@ -35,11 +35,11 @@ fn repl(mut vm: VM) {
     let mut input = String::new();
     loop {
         print!("> ");
-        io::stdout().flush().ok().expect("Failed to flush stdout!!");
+        io::stdout().flush().ok().expect("Failed to flush stdout!");
 
         io::stdin()
             .read_line(&mut input)
-            .expect("Failed to read line!!");
+            .expect("Failed to read line!");
 
         vm.interpret(mem::replace(&mut input, String::new()));
     }

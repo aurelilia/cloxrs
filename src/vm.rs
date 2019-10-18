@@ -141,7 +141,7 @@ impl VM {
             OpCode::Multiply => a * b,
             OpCode::Divide => a / b,
 
-            OpCode::Equal => a.equal(b),
+            OpCode::Equal => Some(Value::Bool(a == b)),
             OpCode::Greater => a.greater(b),
             OpCode::Less => a.less(b),
 

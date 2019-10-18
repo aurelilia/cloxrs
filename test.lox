@@ -39,3 +39,5 @@ while (i < 10) {
 for (var j = 0; j < 5; j = j + 1) {
     print "Woo, Rust!";
 }
+
+if (2 == 3) { print "bad"; }
