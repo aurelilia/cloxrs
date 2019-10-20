@@ -16,6 +16,10 @@ mod vm;
 use std::io::Write;
 use std::{fs, io, process, mem};
 use vm::VM;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+type MutRc<T> = Rc<RefCell<T>>;
 
 fn main() {
     let vm = VM::new();

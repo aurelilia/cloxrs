@@ -3,11 +3,13 @@ use super::value::Value;
 
 const VECTOR_PREALLOC: usize = 8;
 
+#[derive(Debug, PartialEq)]
 pub struct OpCodeLine {
     pub code: OpCode,
     pub line: usize,
 }
 
+#[derive(Debug, PartialEq)]
 pub struct Chunk {
     pub code: Vec<OpCodeLine>,
     pub constants: Vec<Value>,

@@ -1,3 +1,4 @@
+mod parser;
 mod scanner;
 mod token;
 
@@ -10,35 +11,39 @@ use scanner::Scanner;
 use token::*;
 use std::rc::Rc;
 use std::mem;
+use crate::value::Function;
+use crate::MutRc;
+use std::cell::{RefCell, RefMut, Ref};
+use crate::compiler::parser::Parser;
+
+enum FunctionType {
+    Function,
+    Script,
+}
 
 pub struct Compiler {
-    scanner: Scanner,
-    compiling_chunk: Chunk,
+    parser: MutRc<Parser>,
 
-    previous: Token,
-    current: Token,
-
-    had_error: bool,
-    panic_mode: bool,
+    function: Function,
+    function_type: FunctionType,
 
     locals: Vec<Local>,
     scope_depth: usize,
 }
 
 impl Compiler {
-    pub fn compile(&mut self, source: String) -> Option<Chunk> {
-        self.scanner = Scanner::new(source);
-        self.advance();
+    pub fn compile(&mut self) -> Option<MutRc<Function>> {
+        self.parser_mut().advance();
 
-        while !self.match_next(Type::EOF) {
+        while !self.parser_mut().match_next(Type::EOF) {
             self.declaration();
         }
 
-        self.end_compiliation();
-        if self.had_error {
+        let fun = self.end_compiliation();
+        if self.parser_mut().had_error {
             None
         } else {
-            Some(mem::replace(&mut self.compiling_chunk, Chunk::new()))
+            Some(fun)
         }
     }
 
@@ -47,37 +52,71 @@ impl Compiler {
     }
 
     fn declaration(&mut self) {
-        if self.match_next(Type::Var) {
-            self.var_declaration();
-        } else {
-            self.statement();
+        match () {
+            _ if self.parser_mut().match_next(Type::Var) => self.var_declaration(),
+            _ if self.parser_mut().match_next(Type::Fun) => self.fun_declaration(),
+            _ => self.statement()
         }
 
-        if self.panic_mode {
-            self.synchronize();
-        }
+        self.parser_mut().synchronize();
+    }
+
+    fn fun_declaration(&mut self) {
+        let global = self.parse_variable("Expected function name.");
+        self.mark_initialized();
+        self.function(FunctionType::Function);
+        self.define_variable(global);
     }
 
     fn var_declaration(&mut self) {
         let global = self.parse_variable("Expected variable name.");
 
-        if self.match_next(Type::Equal) {
+        if self.parser_mut().match_next(Type::Equal) {
             self.expression();
         } else {
             self.emit_opcode(OpCode::Constant(Value::Nil));
         }
 
-        self.consume(Type::Semicolon, "Expected ';' after variable declaration.");
+        self.parser_mut().consume(Type::Semicolon, "Expected ';' after variable declaration.");
         self.define_variable(global);
+    }
+
+    fn function(&mut self, function_type: FunctionType) {
+        let mut comp = Compiler {
+            parser: Rc::clone(&self.parser),
+            function: Self::new_function(Some(Rc::clone(&self.parser_mut().previous.lexeme)), 0),
+            function_type,
+            locals: vec![],
+            scope_depth: 0
+        };
+        comp.begin_scope();
+
+        comp.consume(Type::LeftParen, "Expected '(' after function name.");
+        if !comp.parser_mut().check(Type::RightParen) {
+            loop {
+                comp.function.arity += 1;
+                let param = comp.parse_variable("Expected parameter name.");
+                comp.define_variable(param);
+
+                if !comp.parser_mut().match_next(Type::Comma) { break; }
+            }
+        }
+        comp.consume(Type::RightParen, "Expected ')' after parameters.");
+
+        comp.consume(Type::LeftBrace, "Expected '{' before function body.");
+        comp.block();
+
+        let fun = comp.end_compiliation();
+        self.emit_opcode(OpCode::Constant(Value::Function(fun)))
     }
 
     fn statement(&mut self) {
         match () {
-            _ if self.match_next(Type::Print) => self.print_statement(),
-            _ if self.match_next(Type::If) => self.if_statement(),
-            _ if self.match_next(Type::While) => self.while_statement(),
-            _ if self.match_next(Type::For) => self.for_statement(),
-            _ if self.match_next(Type::LeftBrace) => {
+            _ if self.parser_mut().match_next(Type::Print) => self.print_statement(),
+            _ if self.parser_mut().match_next(Type::If) => self.if_statement(),
+            _ if self.parser_mut().match_next(Type::While) => self.while_statement(),
+            _ if self.parser_mut().match_next(Type::For) => self.for_statement(),
+            _ if self.parser_mut().match_next(Type::LeftBrace) => {
                 self.begin_scope();
                 self.block();
                 self.end_scope();
@@ -104,14 +143,14 @@ impl Compiler {
         self.patch_jump(then_jump);
         self.emit_opcode(OpCode::Pop);
 
-        if self.match_next(Type::Else) {
+        if self.parser_mut().match_next(Type::Else) {
             self.statement();
         }
         self.patch_jump(else_jump);
     }
 
     fn while_statement(&mut self) {
-        let loop_start = self.compiling_chunk.code.len();
+        let loop_start = self.current_chunk().code.len();
 
         self.consume(Type::LeftParen, "Expected '(' after 'while'.");
         self.expression();
@@ -132,17 +171,17 @@ impl Compiler {
 
         self.consume(Type::LeftParen, "Expected '(' after 'for'.");
 
-        if self.match_next(Type::Var) {
+        if self.parser_mut().match_next(Type::Var) {
             self.var_declaration();
-        } else if self.match_next(Type::Semicolon) {
+        } else if self.parser_mut().match_next(Type::Semicolon) {
         } else {
             self.expression_statement();
         }
 
-        let mut loop_start = self.compiling_chunk.code.len();
+        let mut loop_start = self.current_chunk().code.len();
 
         let mut exit_jump: usize = 0;
-        if !self.match_next(Type::Semicolon) {
+        if !self.parser_mut().match_next(Type::Semicolon) {
             self.expression();
             self.consume(Type::Semicolon, "Expected ';' after loop condition.");
 
@@ -150,10 +189,10 @@ impl Compiler {
             self.emit_opcode(OpCode::Pop);
         }
 
-        if !self.match_next(Type::RightParen) {
+        if !self.parser_mut().match_next(Type::RightParen) {
             let body_jump = self.emit_jump(OpCode::Jump(0));
 
-            let increment_start = self.compiling_chunk.code.len();
+            let increment_start = self.current_chunk().code.len();
             self.expression();
             self.emit_opcode(OpCode::Pop);
             self.consume(Type::RightParen, "Expected ')' after for clauses.");
@@ -182,7 +221,7 @@ impl Compiler {
     }
 
     fn block(&mut self) {
-        while !self.check(Type::RightBrace) && !self.check(Type::EOF) {
+        while !self.parser().check(Type::RightBrace) && !self.parser().check(Type::EOF) {
             self.declaration();
         }
 
@@ -195,7 +234,7 @@ impl Compiler {
     }
 
     fn unary(&mut self) {
-        let op_type = self.previous.t_type;
+        let op_type = self.previous().t_type;
         self.parse_precedence(Precedence::Unary);
 
         match op_type {
@@ -206,7 +245,7 @@ impl Compiler {
     }
 
     fn binary(&mut self) {
-        let op_type = self.previous.t_type;
+        let op_type = self.previous().t_type;
 
         let rule = Compiler::get_rule(op_type);
         self.parse_precedence(Precedence::from_usize(rule.precedence.to_usize() + 1));
@@ -247,12 +286,12 @@ impl Compiler {
     }
 
     fn literal(&mut self) {
-        match self.previous.t_type {
+        match self.previous().t_type {
             Type::False => self.emit_opcode(OpCode::Constant(Value::Bool(false))),
             Type::Nil => self.emit_opcode(OpCode::Constant(Value::Nil)),
             Type::True => self.emit_opcode(OpCode::Constant(Value::Bool(true))),
             Type::Number => {
-                let value: f64 = self.previous.lexeme.parse().expect("Invalid number?");
+                let value: f64 = self.previous().lexeme.parse().expect("Invalid number?");
                 self.emit_opcode(OpCode::Constant(Value::Number(value)));
             }
             _ => (),
@@ -260,7 +299,7 @@ impl Compiler {
     }
 
     fn string(&mut self) {
-        self.emit_opcode(OpCode::Constant(Value::String(Rc::clone(&self.previous.lexeme))))
+        self.emit_opcode(OpCode::Constant(Value::String(Rc::clone(&self.previous().lexeme))))
     }
 
     fn variable(&mut self, can_assign: bool) {
@@ -279,7 +318,7 @@ impl Compiler {
             set_op = OpCode::SetGlobal(Rc::clone(&name.lexeme));
         }
 
-        if can_assign && self.match_next(Type::Equal) {
+        if can_assign && self.parser_mut().match_next(Type::Equal) {
             self.expression();
             self.emit_opcode(set_op);
         } else {
@@ -288,8 +327,8 @@ impl Compiler {
     }
 
     fn parse_precedence(&mut self, precedence: Precedence) {
-        self.advance();
-        let prefix_rule = Compiler::get_rule(self.previous.t_type).prefix;
+        self.parser_mut().advance();
+        let prefix_rule = Compiler::get_rule(self.previous().t_type).prefix;
         let can_assign = precedence <= Precedence::Assignment;
 
         if let Some(rule) = prefix_rule {
@@ -300,19 +339,19 @@ impl Compiler {
         }
 
         while precedence.to_usize()
-            <= Compiler::get_rule(self.current.t_type)
+            <= Compiler::get_rule(self.current().t_type)
                 .precedence
                 .to_usize()
         {
-            self.advance();
-            let infix_rule = Compiler::get_rule(self.previous.t_type).infix;
+            self.parser_mut().advance();
+            let infix_rule = Compiler::get_rule(self.previous().t_type).infix;
             match infix_rule {
                 Some(rule) => rule(self, can_assign),
                 None => self.error("Unexpected infix expression.")
             }
         }
 
-        if can_assign && self.match_next(Type::Equal) {
+        if can_assign && self.parser_mut().match_next(Type::Equal) {
             self.error("Invalid assignment target.");
             self.expression();
         }
@@ -338,7 +377,7 @@ impl Compiler {
             return None
         }
 
-        Some(Rc::clone(&self.previous.lexeme))
+        Some(Rc::clone(&self.previous().lexeme))
     }
 
     fn declare_variable(&mut self) {
@@ -350,13 +389,13 @@ impl Compiler {
             if local.depth < self.scope_depth {
                 break;
             }
-            if self.previous.lexeme == local.name.lexeme {
+            if self.previous().lexeme == local.name.lexeme {
                 self.error("Variable with same name already declared in this scope.");
                 break;
             }
         }
 
-        self.add_local(self.previous.clone());
+        self.add_local(self.previous().clone());
     }
 
     fn define_variable(&mut self, global: Option<Rc<String>>) {
@@ -376,51 +415,13 @@ impl Compiler {
     }
 
     fn mark_initialized(&mut self) {
+        if self.scope_depth == 0 { return }
         self.locals.last_mut().unwrap().initialized = true;
     }
 
-    fn advance(&mut self) {
-        loop {
-            let tok = self.scanner.scan_token().unwrap_or(Token {
-                t_type: Type::EOF,
-                lexeme: Rc::new("".to_string()),
-                line: 0
-            });
-            self.previous = mem::replace(&mut self.current, tok);
-
-            if let Type::Error = self.current.t_type {
-                self.error(&self.current.lexeme.clone());
-            } else {
-                break;
-            }
-        }
-    }
-
-    fn match_next(&mut self, t_type: Type) -> bool {
-        if !self.check(t_type) {
-            return false;
-        }
-        self.advance();
-        true
-    }
-
-    fn consume(&mut self, t_type: Type, message: &str) {
-        if t_type == self.current.t_type {
-            self.advance();
-        } else {
-            self.error(message);
-        }
-    }
-
-    fn check(&self, t_type: Type) -> bool {
-        t_type == self.current.t_type
-    }
-
     fn emit_opcode(&mut self, code: OpCode) {
-        self.compiling_chunk.code.push(OpCodeLine {
-            code,
-            line: self.previous.line,
-        })
+        let line = self.previous().line;
+        self.current_chunk_mut().code.push(OpCodeLine { code, line })
     }
 
     fn emit_opcodes(&mut self, code1: OpCode, code2: OpCode) {
@@ -430,13 +431,13 @@ impl Compiler {
 
     fn emit_jump(&mut self, code: OpCode) -> usize {
         self.emit_opcode(code);
-        self.compiling_chunk.code.len() - 1
+        self.current_chunk().code.len() - 1
     }
 
     fn patch_jump(&mut self, offset: usize) {
-        let jump = self.compiling_chunk.code.len() - offset - 1;
+        let jump = self.current_chunk().code.len() - offset - 1;
 
-        self.compiling_chunk.code[offset].code = match self.compiling_chunk.code[offset].code {
+        self.current_chunk_mut().code[offset].code = match self.current_chunk().code[offset].code {
             OpCode::Jump(_) => OpCode::Jump(jump),
             OpCode::JumpIfFalse(_) => OpCode::JumpIfFalse(jump),
             _ => panic!("Jump was tried to be patched, opcode was not a jump!"),
@@ -444,12 +445,13 @@ impl Compiler {
     }
 
     fn emit_loop(&mut self, start: usize) {
-        let jump = self.compiling_chunk.code.len() - start + 1;
+        let jump = self.current_chunk().code.len() - start + 1;
         self.emit_opcode(OpCode::Loop(jump));
     }
 
-    fn end_compiliation(&mut self) {
+    fn end_compiliation(&mut self) -> MutRc<Function> {
         self.emit_opcode(OpCode::Return);
+        Rc::new(RefCell::new(mem::replace(&mut self.function, Self::new_function(None, 0))))
     }
 
     fn begin_scope(&mut self) {
@@ -467,81 +469,62 @@ impl Compiler {
         }
     }
 
-    fn error(&mut self, message: &str) {
-        if self.panic_mode {
-            return;
-        }
-
-        eprint!("[Line {}] Error", self.current.line);
-        match self.current.t_type {
-            Type::EOF => eprint!(" at end"),
-            Type::Error => (),
-            _ => eprint!(" at line {}", self.current.line),
-        }
-        eprintln!(": {}", message);
-
-        self.had_error = true;
-        self.panic_mode = true;
-    }
-
-    fn synchronize(&mut self) {
-        self.panic_mode = false;
-
-        while self.current.t_type != Type::EOF {
-            if self.previous.t_type == Type::Semicolon {
-                return;
-            }
-
-            match self.current.t_type {
-                Type::Class
-                | Type::Fun
-                | Type::Var
-                | Type::For
-                | Type::If
-                | Type::While
-                | Type::Print
-                | Type::Return => return,
-                _ => (),
-            }
-        }
-
-        self.advance();
-    }
-
     fn get_rule(t_type: Type) -> &'static ParseRule {
         &RULES[t_type.to_usize()]
     }
 
     fn current(&self) -> Token {
-        self.current.clone()
+        self.parser_mut().current.clone()
     }
 
     fn previous(&self) -> Token {
-        self.previous.clone()
+        self.parser_mut().previous.clone()
     }
 
-    pub fn new() -> Compiler {
-        // Note: All struct values are initialized to stub values.
-        // TODO: Find a way to create a stubbed chunk reference without having to pass one in
+    fn current_chunk(&self) -> &Chunk {
+        &self.function.chunk
+    }
+
+    fn current_chunk_mut(&mut self) -> &mut Chunk {
+        &mut self.function.chunk
+    }
+
+    fn new_function(name: Option<Rc<String>>, arity: usize) -> Function {
+        Function {
+            name,
+            arity,
+            chunk: Chunk::new()
+        }
+    }
+        
+    fn consume(&mut self, t_type: Type, message: &str) {
+        self.parser_mut().consume(t_type, message)
+    }
+
+    fn error(&mut self, message: &str) {
+        self.parser_mut().error(message)
+    }
+
+    fn parser_mut(&self) -> RefMut<Parser> {
+        self.parser.borrow_mut()
+    }
+
+    fn parser(&self) -> Ref<Parser> {
+        self.parser.borrow()
+    }
+
+    pub fn new(code: String) -> Compiler {
         Compiler {
-            scanner: Scanner::new("".to_string()),
-            compiling_chunk: Chunk::new(),
+            parser: Parser::new(code),
 
-            previous: Token {
-                t_type: Type::Error,
-                lexeme: Rc::new("\0".to_string()),
-                line: 0,
-            },
-            current: Token {
-                t_type: Type::Error,
-                lexeme: Rc::new("\0".to_string()),
-                line: 0,
-            },
+            function: Self::new_function(None, 0),
+            function_type: FunctionType::Script,
 
-            had_error: false,
-            panic_mode: false,
-
-            locals: Vec::with_capacity(8),
+            locals: vec![Local {
+                name: Token::generic_token(Type::Identifier),
+                depth: 0,
+                initialized: false
+            }],
             scope_depth: 0,
         }
     }

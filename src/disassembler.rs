@@ -1,7 +1,8 @@
 use super::chunk::{Chunk, OpCodeLine};
+use std::rc::Rc;
 
-pub fn disassemble_chunk(chunk: &Chunk, name: &str) {
-    println!("== {} ==", name);
+pub fn disassemble_chunk(chunk: &Chunk, name: &Option<Rc<String>>) {
+    println!("== {} ==", name.as_ref().unwrap_or(&Rc::new("SCRIPT".to_string())));
 
     for (index, instruction) in chunk.code.iter().enumerate() {
         disassemble_instruction(index, instruction);

@@ -7,6 +7,16 @@ pub struct Token {
     pub line: usize,
 }
 
+impl Token {
+    pub fn generic_token(token: Type) -> Token {
+        Token {
+            t_type: token,
+            lexeme: Rc::new("".to_string()),
+            line: 0,
+        }
+    }
+}
+
 plain_enum_mod! {this, Type {
     LeftParen, RightParen,
     LeftBrace, RightBrace,

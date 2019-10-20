@@ -1,7 +1,7 @@
 use super::value::Value;
 use std::rc::Rc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum OpCode {
     Constant(Value),
     DefineGlobal(Rc<String>),

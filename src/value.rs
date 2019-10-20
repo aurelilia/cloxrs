@@ -2,6 +2,8 @@ use std::fmt;
 use std::mem::discriminant;
 use std::ops::*;
 use std::rc::Rc;
+use crate::chunk::Chunk;
+use crate::MutRc;
 
 #[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA)]
 pub enum Value {
@@ -9,6 +11,32 @@ pub enum Value {
     Nil,
     Number(f64),
     String(Rc<String>),
+    Function(MutRc<Function>)
+}
+
+#[derive(PartialEq)]
+pub struct Function {
+    pub name: Option<Rc<String>>,
+    pub arity: usize,
+    pub chunk: Chunk,
+}
+
+impl fmt::Display for Function {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self.name {
+            Some(name) => write!(f, "<fn {}>", name),
+            None => write!(f, "<script>")
+        }
+    }
+}
+
+impl fmt::Debug for Function {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match &self.name {
+            Some(name) => write!(f, "<fn {}>", name),
+            None => write!(f, "<script>")
+        }
+    }
 }
 
 impl Value {
@@ -48,6 +76,7 @@ impl fmt::Display for Value {
             Value::String(val) => write!(f, "{}", val),
             Value::Bool(val) => write!(f, "{}", val),
             Value::Nil => write!(f, "nil"),
+            Value::Function(func) => write!(f, "{}", func.borrow().to_string()),
         }
     }
 }
