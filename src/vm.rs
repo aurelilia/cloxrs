@@ -119,7 +119,24 @@ impl VM {
 
                 OpCode::Loop(offset) => frame.ip -= offset,
 
-                OpCode::Return => break InterpretResult::Ok,
+                OpCode::Call(arg_count) => {
+                    if !self.call_value(self.stack[self.stack.len() - arg_count - 1].clone(), arg_count) {
+                        break InterpretResult::RuntimeError;
+                    }
+                }
+
+                OpCode::Return => {
+                    let result = self.stack_pop();
+
+                    let frame = self.frames.pop().unwrap();
+                    if self.frames.is_empty() {
+                        self.stack_pop();
+                        break InterpretResult::Ok
+                    }
+
+                    self.stack.truncate(frame.slot_offset);
+                    self.stack.push(result);
+                },
             }
         }
     }
@@ -174,6 +191,26 @@ impl VM {
         });
     }
 
+    fn call_value(&mut self, callee: Value, arg_count: usize) -> bool {
+        if let Value::Function(func) = callee {
+            self.call(func, arg_count)
+        } else {
+            self.print_error("Can only call functions and classes.");
+            false
+        }
+    }
+
+    fn call(&mut self, func: MutRc<Function>, arg_count: usize) -> bool {
+        if arg_count != func.borrow().arity {
+            self.print_error(&format!("Incorrect amount of function arguments (wanted {}, got {})", func.borrow().arity, arg_count));
+            return false;
+        }
+
+        self.new_callframe(func);
+        self.frames.last_mut().unwrap().slot_offset -= arg_count;
+        true
+    }
+
     fn print_error(&mut self, message: &str) {
         let frame = self.frames.last().unwrap();
         println!(
@@ -181,6 +218,12 @@ impl VM {
             frame.function.borrow().chunk.code[frame.ip - 1].line,
             message
         );
+        println!("Stack trace:");
+        for frame in self.frames.iter().rev() {
+            let func = frame.function.borrow();
+            let line = func.chunk.code[frame.ip - 1].line;
+            println!("[Line {}] in {}", line, func)
+        }
     }
 
     pub fn new() -> VM {

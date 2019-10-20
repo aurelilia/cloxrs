@@ -27,5 +27,7 @@ pub enum OpCode {
     JumpIfFalse(usize),
     Loop(usize),
 
+    Call(usize),
+
     Return,
 }

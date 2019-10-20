@@ -267,6 +267,11 @@ impl Compiler {
         }
     }
 
+    fn call(&mut self) {
+        let arg_count = self.argument_list();
+        self.emit_opcode(OpCode::Call(arg_count))
+    }
+
     fn and(&mut self) {
         let end_jump = self.emit_jump(OpCode::JumpIfFalse(0));
         self.emit_opcode(OpCode::Pop);
@@ -406,6 +411,20 @@ impl Compiler {
         }
     }
 
+    fn argument_list(&mut self) -> usize {
+        let mut arg_count = 0;
+        if !self.parser().check(Type::RightParen) {
+            loop {
+                self.expression();
+                arg_count += 1;
+                if !self.parser_mut().match_next(Type::Comma) { break; }
+            }
+        }
+
+        self.consume(Type::RightParen, "Expected ')' after arguments.");
+        arg_count
+    }
+
     fn add_local(&mut self, name: Token) {
         self.locals.push(Local {
             name,
@@ -450,6 +469,7 @@ impl Compiler {
     }
 
     fn end_compiliation(&mut self) -> MutRc<Function> {
+        self.emit_opcode(OpCode::Constant(Value::Nil));
         self.emit_opcode(OpCode::Return);
         Rc::new(RefCell::new(mem::replace(&mut self.function, Self::new_function(None, 0))))
     }
@@ -587,7 +607,11 @@ impl ParseRule {
 }
 
 static RULES: [ParseRule; 40] = [
-    ParseRule::new_both(|compiler, _| compiler.grouping(), None, Precedence::Call), // LEFT_PAREN
+    ParseRule::new_both(                                                            // LEFT_PAREN
+        |compiler, _| compiler.grouping(),
+        Some(|compiler, _| compiler.call()),
+        Precedence::Call
+    ),
     ParseRule::new(Precedence::None),                                               // RIGHT_PAREN
     ParseRule::new(Precedence::None),                                               // LEFT_BRACE
     ParseRule::new(Precedence::None),                                               // RIGHT_BRACE

@@ -47,3 +47,11 @@ fun areWeHavingItYet() {
 }
 
 print areWeHavingItYet;
+
+fun a() {
+    print "great!";
+}
+
+print "good!";
+a();
+print "perfect!";
