@@ -1,7 +1,7 @@
+use smol_str::SmolStr;
 use std::fmt;
 use std::mem::discriminant;
 use std::ops::*;
-use smol_str::SmolStr;
 
 use crate::chunk::Chunk;
 use crate::MutRc;
@@ -13,13 +13,13 @@ pub enum Value {
     Number(f64),
     String(SmolStr),
     Function(MutRc<Function>),
-    NativeFun(MutRc<NativeFun>)
+    NativeFun(MutRc<NativeFun>),
 }
 
 fn print_fn_name(name: &Option<SmolStr>, f: &mut fmt::Formatter) -> fmt::Result {
     match name {
         Some(name) => write!(f, "<fn {}>", name),
-        None => write!(f, "<script>")
+        None => write!(f, "<script>"),
     }
 }
 
@@ -43,20 +43,20 @@ impl fmt::Debug for Function {
 }
 
 pub struct NativeFun {
-    pub name: Option<SmolStr>,
+    pub name: SmolStr,
     pub arity: usize,
-    pub func: Box<dyn Fn(&[Value]) -> Value>
+    pub func: fn(&[Value]) -> Result<Value, &str>,
 }
 
 impl fmt::Display for NativeFun {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        print_fn_name(&self.name, f)
+        print_fn_name(&Some(self.name.clone()), f)
     }
 }
 
 impl fmt::Debug for NativeFun {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        print_fn_name(&self.name, f)
+        print_fn_name(&Some(self.name.clone()), f)
     }
 }
 
@@ -77,6 +77,14 @@ impl Value {
 
     fn same_type_as(&self, other: &Value) -> bool {
         discriminant(self) == discriminant(other)
+    }
+
+    pub fn arity(&self) -> Option<usize> {
+        match self {
+            Value::Function(f) => Some(f.borrow().arity),
+            Value::NativeFun(f) => Some(f.borrow().arity),
+            _ => None,
+        }
     }
 
     pub fn less(&self, other: Value) -> Option<Value> {
@@ -116,7 +124,9 @@ impl Add for Value {
         if self.is_number() && other.is_number() {
             Some(Value::Number(self.as_number() + other.as_number()))
         } else {
-            Some(Value::String(SmolStr::new(self.to_string() + &other.to_string())))
+            Some(Value::String(SmolStr::new(
+                self.to_string() + &other.to_string(),
+            )))
         }
     }
 }

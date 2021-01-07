@@ -8,13 +8,13 @@ use smol_str::SmolStr;
 use super::chunk::{Chunk, OpCodeLine};
 use super::opcode::OpCode;
 use super::value::Value;
-use token::*;
-use std::rc::Rc;
-use std::mem;
 use crate::value::Function;
 use crate::MutRc;
-use std::cell::{RefCell, RefMut, Ref};
-use crate::compiler::parser::Parser;
+use crate::{compiler::parser::Parser};
+use std::cell::{Ref, RefCell, RefMut};
+use std::mem;
+use std::rc::Rc;
+use token::*;
 
 #[derive(Debug, PartialEq)]
 enum FunctionType {
@@ -56,7 +56,7 @@ impl Compiler {
         match () {
             _ if self.parser_mut().match_next(Type::Var) => self.var_declaration(),
             _ if self.parser_mut().match_next(Type::Fun) => self.fun_declaration(),
-            _ => self.statement()
+            _ => self.statement(),
         }
 
         self.parser_mut().synchronize();
@@ -78,7 +78,8 @@ impl Compiler {
             self.emit_opcode(OpCode::Constant(Value::Nil));
         }
 
-        self.parser_mut().consume(Type::Semicolon, "Expected ';' after variable declaration.");
+        self.parser_mut()
+            .consume(Type::Semicolon, "Expected ';' after variable declaration.");
         self.define_variable(global);
     }
 
@@ -88,7 +89,7 @@ impl Compiler {
             function: Self::new_function(Some(self.parser_mut().previous.lexeme.clone()), 0),
             function_type,
             locals: vec![],
-            scope_depth: 0
+            scope_depth: 0,
         };
         comp.begin_scope();
 
@@ -99,7 +100,9 @@ impl Compiler {
                 let param = comp.parse_variable("Expected parameter name.");
                 comp.define_variable(param);
 
-                if !comp.parser_mut().match_next(Type::Comma) { break; }
+                if !comp.parser_mut().match_next(Type::Comma) {
+                    break;
+                }
             }
         }
         comp.consume(Type::RightParen, "Expected ')' after parameters.");
@@ -368,7 +371,7 @@ impl Compiler {
             let infix_rule = Compiler::get_rule(self.previous().t_type).infix;
             match infix_rule {
                 Some(rule) => rule(self, can_assign),
-                None => self.error("Unexpected infix expression.")
+                None => self.error("Unexpected infix expression."),
             }
         }
 
@@ -395,7 +398,7 @@ impl Compiler {
 
         self.declare_variable();
         if self.scope_depth > 0 {
-            return None
+            return None;
         }
 
         Some(self.previous().lexeme)
@@ -433,7 +436,9 @@ impl Compiler {
             loop {
                 self.expression();
                 arg_count += 1;
-                if !self.parser_mut().match_next(Type::Comma) { break; }
+                if !self.parser_mut().match_next(Type::Comma) {
+                    break;
+                }
             }
         }
 
@@ -450,13 +455,17 @@ impl Compiler {
     }
 
     fn mark_initialized(&mut self) {
-        if self.scope_depth == 0 { return }
+        if self.scope_depth == 0 {
+            return;
+        }
         self.locals.last_mut().unwrap().initialized = true;
     }
 
     fn emit_opcode(&mut self, code: OpCode) {
         let line = self.previous().line;
-        self.current_chunk_mut().code.push(OpCodeLine { code, line })
+        self.current_chunk_mut()
+            .code
+            .push(OpCodeLine { code, line })
     }
 
     fn emit_opcodes(&mut self, code1: OpCode, code2: OpCode) {
@@ -487,12 +496,14 @@ impl Compiler {
     fn emit_return(&mut self) {
         self.emit_opcode(OpCode::Constant(Value::Nil));
         self.emit_opcode(OpCode::Return);
-
     }
 
     fn end_compiliation(&mut self) -> MutRc<Function> {
         self.emit_return();
-        Rc::new(RefCell::new(mem::replace(&mut self.function, Self::new_function(None, 0))))
+        Rc::new(RefCell::new(mem::replace(
+            &mut self.function,
+            Self::new_function(None, 0),
+        )))
     }
 
     fn begin_scope(&mut self) {
@@ -534,10 +545,10 @@ impl Compiler {
         Function {
             name,
             arity,
-            chunk: Chunk::new()
+            chunk: Chunk::new(),
         }
     }
-        
+
     fn consume(&mut self, t_type: Type, message: &str) {
         self.parser_mut().consume(t_type, message)
     }
@@ -564,7 +575,7 @@ impl Compiler {
             locals: vec![Local {
                 name: Token::generic_token(Type::Identifier),
                 depth: 0,
-                initialized: false
+                initialized: false,
             }],
             scope_depth: 0,
         }
@@ -628,56 +639,59 @@ impl ParseRule {
 }
 
 static RULES: [ParseRule; 40] = [
-    ParseRule::new_both(                                                            // LEFT_PAREN
+    ParseRule::new_both(
+        // LEFT_PAREN
         |compiler, _| compiler.grouping(),
         Some(|compiler, _| compiler.call()),
-        Precedence::Call
+        Precedence::Call,
     ),
-    ParseRule::new(Precedence::None),                                               // RIGHT_PAREN
-    ParseRule::new(Precedence::None),                                               // LEFT_BRACE
-    ParseRule::new(Precedence::None),                                               // RIGHT_BRACE
-    ParseRule::new(Precedence::None),                                               // COMMA
-    ParseRule::new(Precedence::Call),                                               // DOT
-    ParseRule::new_both(                                                            // MINUS
+    ParseRule::new(Precedence::None), // RIGHT_PAREN
+    ParseRule::new(Precedence::None), // LEFT_BRACE
+    ParseRule::new(Precedence::None), // RIGHT_BRACE
+    ParseRule::new(Precedence::None), // COMMA
+    ParseRule::new(Precedence::Call), // DOT
+    ParseRule::new_both(
+        // MINUS
         |compiler, _| compiler.unary(),
         Some(|compiler, _| compiler.binary()),
         Precedence::Term,
-    ), 
-    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Term),        // PLUS
-    ParseRule::new(Precedence::None),                                               // SEMICOLON
-    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Factor),      // SLASH
-    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Factor),      // STAR
-    ParseRule::new_both(|compiler, _| compiler.unary(), None, Precedence::None),    // BANG
-    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Equality),    // BANG_EQUAL
-    ParseRule::new(Precedence::None),                                               // EQUAL
-    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Equality),    // EQUAL_EQUAL
-    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // GREATER
-    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // GREATER_EQUAL
-    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // LESS
-    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison),  // LESS_EQUAL
-    ParseRule::new_both(                                                            // IDENTIFIER
+    ),
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Term), // PLUS
+    ParseRule::new(Precedence::None),                                        // SEMICOLON
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Factor), // SLASH
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Factor), // STAR
+    ParseRule::new_both(|compiler, _| compiler.unary(), None, Precedence::None), // BANG
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Equality), // BANG_EQUAL
+    ParseRule::new(Precedence::None),                                        // EQUAL
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Equality), // EQUAL_EQUAL
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison), // GREATER
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison), // GREATER_EQUAL
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison), // LESS
+    ParseRule::new_infix(|compiler, _| compiler.binary(), Precedence::Comparison), // LESS_EQUAL
+    ParseRule::new_both(
+        // IDENTIFIER
         |compiler, can_assign| compiler.variable(can_assign),
         None,
         Precedence::None,
-    ), 
-    ParseRule::new_both(|compiler, _| compiler.string(), None, Precedence::Term),   // STRING
-    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None),  // NUMBER
-    ParseRule::new_infix(|compiler, _| compiler.and(), Precedence::And),            // AND
-    ParseRule::new(Precedence::None),                                               // CLASS
-    ParseRule::new(Precedence::None),                                               // ELSE
-    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None),  // FALSE
-    ParseRule::new(Precedence::None),                                               // FOR
-    ParseRule::new(Precedence::None),                                               // FUN
-    ParseRule::new(Precedence::None),                                               // IF
-    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None),  // NIL
-    ParseRule::new_infix(|compiler, _| compiler.or(), Precedence::Or),              // OR
-    ParseRule::new(Precedence::None),                                               // PRINT
-    ParseRule::new(Precedence::None),                                               // RETURN
-    ParseRule::new(Precedence::None),                                               // SUPER
-    ParseRule::new(Precedence::None),                                               // THIS
-    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None),  // TRUE
-    ParseRule::new(Precedence::None),                                               // VAR
-    ParseRule::new(Precedence::None),                                               // WHILE
-    ParseRule::new(Precedence::None),                                               // ERROR
-    ParseRule::new(Precedence::None),                                               // EOF
+    ),
+    ParseRule::new_both(|compiler, _| compiler.string(), None, Precedence::Term), // STRING
+    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None), // NUMBER
+    ParseRule::new_infix(|compiler, _| compiler.and(), Precedence::And),          // AND
+    ParseRule::new(Precedence::None),                                             // CLASS
+    ParseRule::new(Precedence::None),                                             // ELSE
+    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None), // FALSE
+    ParseRule::new(Precedence::None),                                             // FOR
+    ParseRule::new(Precedence::None),                                             // FUN
+    ParseRule::new(Precedence::None),                                             // IF
+    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None), // NIL
+    ParseRule::new_infix(|compiler, _| compiler.or(), Precedence::Or),            // OR
+    ParseRule::new(Precedence::None),                                             // PRINT
+    ParseRule::new(Precedence::None),                                             // RETURN
+    ParseRule::new(Precedence::None),                                             // SUPER
+    ParseRule::new(Precedence::None),                                             // THIS
+    ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None), // TRUE
+    ParseRule::new(Precedence::None),                                             // VAR
+    ParseRule::new(Precedence::None),                                             // WHILE
+    ParseRule::new(Precedence::None),                                             // ERROR
+    ParseRule::new(Precedence::None),                                             // EOF
 ];

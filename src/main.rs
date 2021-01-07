@@ -14,13 +14,18 @@ mod opcode;
 mod value;
 mod vm;
 
-use std::{cell::RefCell, rc::Rc, fs, io::{self, Write}, process};
+use std::{
+    cell::RefCell,
+    fs,
+    io::{self, Write},
+    process,
+    rc::Rc,
+};
 use vm::VM;
 
 type MutRc<T> = Rc<RefCell<T>>;
 
 fn main() {
-
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
         1 => repl(),

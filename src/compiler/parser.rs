@@ -1,9 +1,9 @@
 use crate::compiler::scanner::Scanner;
 use crate::compiler::token::{Token, Type};
-use std::rc::Rc;
-use std::mem;
-use std::cell::RefCell;
 use crate::MutRc;
+use std::cell::RefCell;
+use std::mem;
+use std::rc::Rc;
 
 pub struct Parser {
     pub scanner: Scanner,
@@ -17,7 +17,10 @@ pub struct Parser {
 impl Parser {
     pub fn advance(&mut self) {
         loop {
-            let tok = self.scanner.scan_token().unwrap_or_else(|| Token::generic_token(Type::EOF));
+            let tok = self
+                .scanner
+                .scan_token()
+                .unwrap_or_else(|| Token::generic_token(Type::EOF));
             self.previous = mem::replace(&mut self.current, tok);
 
             if let Type::Error = self.current.t_type {
@@ -66,7 +69,9 @@ impl Parser {
     }
 
     pub fn synchronize(&mut self) {
-        if !self.panic_mode { return }
+        if !self.panic_mode {
+            return;
+        }
         self.panic_mode = false;
 
         while self.current.t_type != Type::EOF {

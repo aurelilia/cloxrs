@@ -128,7 +128,10 @@ impl Scanner {
     fn make_token(&mut self, t_type: Type) -> Token {
         Token {
             t_type,
-            lexeme: self.chars[(self.start)..(self.current)].iter().copied().collect(),
+            lexeme: self.chars[(self.start)..(self.current)]
+                .iter()
+                .copied()
+                .collect(),
             line: self.line,
         }
     }
@@ -141,7 +144,6 @@ impl Scanner {
             line: self.line,
         }
     }
-
 
     fn skip_whitespace(&mut self) {
         loop {
