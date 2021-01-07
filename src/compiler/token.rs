@@ -1,9 +1,9 @@
-use std::rc::Rc;
+use smol_str::SmolStr;
 
 #[derive(Debug, Clone)]
 pub struct Token {
     pub t_type: Type,
-    pub lexeme: Rc<String>,
+    pub lexeme: SmolStr,
     pub line: usize,
 }
 
@@ -11,7 +11,7 @@ impl Token {
     pub fn generic_token(token: Type) -> Token {
         Token {
             t_type: token,
-            lexeme: Rc::new("".to_string()),
+            lexeme: SmolStr::new_inline(""),
             line: 0,
         }
     }

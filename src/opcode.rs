@@ -1,12 +1,14 @@
+use smol_str::SmolStr;
+
 use super::value::Value;
-use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Clone)]
+#[repr(u16)]
 pub enum OpCode {
     Constant(Value),
-    DefineGlobal(Rc<String>),
-    GetGlobal(Rc<String>),
-    SetGlobal(Rc<String>),
+    DefineGlobal(SmolStr),
+    GetGlobal(SmolStr),
+    SetGlobal(SmolStr),
     GetLocal(usize),
     SetLocal(usize),
     Pop,

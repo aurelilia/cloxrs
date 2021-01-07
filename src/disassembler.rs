@@ -1,9 +1,9 @@
+use smol_str::SmolStr;
+
 use super::chunk::{Chunk, OpCodeLine};
-use std::rc::Rc;
 
-pub fn disassemble_chunk(chunk: &Chunk, name: &Option<Rc<String>>) {
-    println!("== {} ==", name.as_ref().unwrap_or(&Rc::new("SCRIPT".to_string())));
-
+pub fn disassemble_chunk(chunk: &Chunk, name: &Option<SmolStr>) {
+    println!("== {} ==", name.as_ref().map(SmolStr::as_str).unwrap_or("SCRIPT"));
     for (index, instruction) in chunk.code.iter().enumerate() {
         disassemble_instruction(index, instruction);
     }

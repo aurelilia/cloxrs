@@ -3,11 +3,11 @@ mod scanner;
 mod token;
 
 use plain_enum::TPlainEnum;
+use smol_str::SmolStr;
 
 use super::chunk::{Chunk, OpCodeLine};
 use super::opcode::OpCode;
 use super::value::Value;
-use scanner::Scanner;
 use token::*;
 use std::rc::Rc;
 use std::mem;
@@ -16,6 +16,7 @@ use crate::MutRc;
 use std::cell::{RefCell, RefMut, Ref};
 use crate::compiler::parser::Parser;
 
+#[derive(Debug, PartialEq)]
 enum FunctionType {
     Function,
     Script,
@@ -84,7 +85,7 @@ impl Compiler {
     fn function(&mut self, function_type: FunctionType) {
         let mut comp = Compiler {
             parser: Rc::clone(&self.parser),
-            function: Self::new_function(Some(Rc::clone(&self.parser_mut().previous.lexeme)), 0),
+            function: Self::new_function(Some(self.parser_mut().previous.lexeme.clone()), 0),
             function_type,
             locals: vec![],
             scope_depth: 0
@@ -116,6 +117,7 @@ impl Compiler {
             _ if self.parser_mut().match_next(Type::If) => self.if_statement(),
             _ if self.parser_mut().match_next(Type::While) => self.while_statement(),
             _ if self.parser_mut().match_next(Type::For) => self.for_statement(),
+            _ if self.parser_mut().match_next(Type::Return) => self.return_statement(),
             _ if self.parser_mut().match_next(Type::LeftBrace) => {
                 self.begin_scope();
                 self.block();
@@ -214,6 +216,20 @@ impl Compiler {
         self.end_scope();
     }
 
+    fn return_statement(&mut self) {
+        if self.function_type == FunctionType::Script {
+            self.error("Cannot return from top-level code.");
+        }
+
+        if self.parser_mut().match_next(Type::Semicolon) {
+            self.emit_return();
+        } else {
+            self.expression();
+            self.consume(Type::Semicolon, "Expected ';' after return value.");
+            self.emit_opcode(OpCode::Return);
+        }
+    }
+
     fn expression_statement(&mut self) {
         self.expression();
         self.consume(Type::Semicolon, "Expected ';' after expression.");
@@ -304,7 +320,7 @@ impl Compiler {
     }
 
     fn string(&mut self) {
-        self.emit_opcode(OpCode::Constant(Value::String(Rc::clone(&self.previous().lexeme))))
+        self.emit_opcode(OpCode::Constant(Value::String(self.previous().lexeme)))
     }
 
     fn variable(&mut self, can_assign: bool) {
@@ -319,8 +335,8 @@ impl Compiler {
             get_op = OpCode::GetLocal(arg);
             set_op = OpCode::SetLocal(arg);
         } else {
-            get_op = OpCode::GetGlobal(Rc::clone(&name.lexeme));
-            set_op = OpCode::SetGlobal(Rc::clone(&name.lexeme));
+            get_op = OpCode::GetGlobal(name.lexeme.clone());
+            set_op = OpCode::SetGlobal(name.lexeme.clone());
         }
 
         if can_assign && self.parser_mut().match_next(Type::Equal) {
@@ -371,10 +387,10 @@ impl Compiler {
                 return Some(index);
             }
         }
-        return None;
+        None
     }
 
-    fn parse_variable(&mut self, message: &str) -> Option<Rc<String>> {
+    fn parse_variable(&mut self, message: &str) -> Option<SmolStr> {
         self.consume(Type::Identifier, message);
 
         self.declare_variable();
@@ -382,7 +398,7 @@ impl Compiler {
             return None
         }
 
-        Some(Rc::clone(&self.previous().lexeme))
+        Some(self.previous().lexeme)
     }
 
     fn declare_variable(&mut self) {
@@ -400,12 +416,12 @@ impl Compiler {
             }
         }
 
-        self.add_local(self.previous().clone());
+        self.add_local(self.previous());
     }
 
-    fn define_variable(&mut self, global: Option<Rc<String>>) {
+    fn define_variable(&mut self, global: Option<SmolStr>) {
         if let Some(name) = global {
-            self.emit_opcode(OpCode::DefineGlobal(Rc::clone(&name)));
+            self.emit_opcode(OpCode::DefineGlobal(name));
         } else {
             self.mark_initialized()
         }
@@ -468,9 +484,14 @@ impl Compiler {
         self.emit_opcode(OpCode::Loop(jump));
     }
 
-    fn end_compiliation(&mut self) -> MutRc<Function> {
+    fn emit_return(&mut self) {
         self.emit_opcode(OpCode::Constant(Value::Nil));
         self.emit_opcode(OpCode::Return);
+
+    }
+
+    fn end_compiliation(&mut self) -> MutRc<Function> {
+        self.emit_return();
         Rc::new(RefCell::new(mem::replace(&mut self.function, Self::new_function(None, 0))))
     }
 
@@ -481,7 +502,7 @@ impl Compiler {
     fn end_scope(&mut self) {
         self.scope_depth -= 1;
 
-        while self.locals.len() > 0
+        while !self.locals.is_empty()
             && self.locals.last().expect("Empty locals?").depth > self.scope_depth
         {
             self.emit_opcode(OpCode::Pop);
@@ -509,7 +530,7 @@ impl Compiler {
         &mut self.function.chunk
     }
 
-    fn new_function(name: Option<Rc<String>>, arity: usize) -> Function {
+    fn new_function(name: Option<SmolStr>, arity: usize) -> Function {
         Function {
             name,
             arity,
@@ -533,7 +554,7 @@ impl Compiler {
         self.parser.borrow()
     }
 
-    pub fn new(code: String) -> Compiler {
+    pub fn new(code: &str) -> Compiler {
         Compiler {
             parser: Parser::new(code),
 

@@ -17,11 +17,7 @@ pub struct Parser {
 impl Parser {
     pub fn advance(&mut self) {
         loop {
-            let tok = self.scanner.scan_token().unwrap_or(Token {
-                t_type: Type::EOF,
-                lexeme: Rc::new("".to_string()),
-                line: 0
-            });
+            let tok = self.scanner.scan_token().unwrap_or_else(|| Token::generic_token(Type::EOF));
             self.previous = mem::replace(&mut self.current, tok);
 
             if let Type::Error = self.current.t_type {
@@ -89,12 +85,12 @@ impl Parser {
                 | Type::Return => return,
                 _ => (),
             }
-        }
 
-        self.advance();
+            self.advance();
+        }
     }
 
-    pub fn new(code: String) -> MutRc<Parser> {
+    pub fn new(code: &str) -> MutRc<Parser> {
         Rc::new(RefCell::new(Parser {
             scanner: Scanner::new(code),
 

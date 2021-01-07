@@ -1,5 +1,6 @@
+use smol_str::SmolStr;
+
 use super::token::{Token, Type};
-use std::rc::Rc;
 
 /// A scanner is an iterator that turns Lox source code into [Token]s.
 pub struct Scanner {
@@ -127,7 +128,7 @@ impl Scanner {
     fn make_token(&mut self, t_type: Type) -> Token {
         Token {
             t_type,
-            lexeme: Rc::new(self.chars[(self.start)..(self.current)].iter().collect()),
+            lexeme: self.chars[(self.start)..(self.current)].iter().copied().collect(),
             line: self.line,
         }
     }
@@ -136,7 +137,7 @@ impl Scanner {
     fn error_token(&mut self, message: &'static str) -> Token {
         Token {
             t_type: Type::Error,
-            lexeme: Rc::new(message.to_string()),
+            lexeme: SmolStr::new(message),
             line: self.line,
         }
     }
@@ -183,7 +184,7 @@ impl Scanner {
 
     fn advance(&mut self) -> Option<char> {
         self.current += 1;
-        self.chars.get(self.current - 1).map(|f| *f)
+        self.chars.get(self.current - 1).copied()
     }
 
     fn peek(&self) -> char {
@@ -194,7 +195,7 @@ impl Scanner {
         self.chars[self.current + 1]
     }
 
-    pub fn new(source: String) -> Scanner {
+    pub fn new(source: &str) -> Scanner {
         let chars: Vec<char> = source.chars().collect();
         Scanner {
             chars,

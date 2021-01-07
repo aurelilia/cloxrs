@@ -1,5 +1,6 @@
 #![feature(const_fn)]
-#![feature(bind_by_move_pattern_guards)]
+#![feature(const_mut_refs)]
+#![feature(const_fn_fn_ptr_basics)]
 
 #[macro_use]
 extern crate plain_enum;
@@ -13,21 +14,17 @@ mod opcode;
 mod value;
 mod vm;
 
-use std::io::Write;
-use std::{fs, io, process, mem};
+use std::{cell::RefCell, rc::Rc, fs, io::{self, Write}, process};
 use vm::VM;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 type MutRc<T> = Rc<RefCell<T>>;
 
 fn main() {
-    let vm = VM::new();
 
     let args: Vec<String> = std::env::args().collect();
     match args.len() {
-        1 => repl(vm),
-        2 => run_file(vm, &args[1]),
+        1 => repl(),
+        2 => run_file(&args[1]),
         _ => {
             println!("Usage: loxrs [path]");
             process::exit(64);
@@ -35,24 +32,26 @@ fn main() {
     }
 }
 
-fn repl(mut vm: VM) {
+fn repl() {
+    let mut vm = VM::new();
     let mut input = String::new();
     loop {
         print!("> ");
-        io::stdout().flush().ok().expect("Failed to flush stdout!");
+        io::stdout().flush().expect("Failed to flush stdout!");
 
         io::stdin()
             .read_line(&mut input)
             .expect("Failed to read line!");
 
-        vm.interpret(mem::replace(&mut input, String::new()));
+        vm.interpret(&input).ok();
     }
 }
 
-fn run_file(mut vm: VM, path: &String) {
+fn run_file(path: &str) {
+    let mut vm = VM::new();
     let file = fs::read_to_string(path);
     match file {
-        Ok(input) => vm.interpret(input),
+        Ok(input) => vm.interpret(&input).ok(),
         Err(_) => {
             println!("Failed to read file.");
             process::exit(74);

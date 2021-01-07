@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
-use super::chunk::Chunk;
+use smol_str::SmolStr;
+
 use super::compiler::Compiler;
 use super::disassembler;
 use super::opcode::OpCode;
@@ -9,29 +10,28 @@ use std::rc::Rc;
 use crate::value::Function;
 use crate::MutRc;
 
+type Res = Result<(), Failure>;
+
 pub struct VM {
     frames: Vec<CallFrame>,
     stack: Vec<Value>,
-    globals: HashMap<Rc<String>, Value>,
+    globals: HashMap<SmolStr, Value>,
 }
 
 impl VM {
-    pub fn interpret(&mut self, source: String) -> InterpretResult {
+    pub fn interpret(&mut self, source: &str) -> Res {
         self.frames.clear();
         let mut compiler = Compiler::new(source);
 
-        if let Some(func) = compiler.compile() {
-            disassembler::disassemble_chunk(&func.borrow().chunk, &func.borrow().name);
-            self.stack.push(Value::Function(Rc::clone(&func)));
-            self.new_callframe(func);
-            self.run();
-            InterpretResult::Ok
-        } else {
-            InterpretResult::CompileError
-        }
+        let func = compiler.compile().ok_or(Failure::CompileError)?;
+        disassembler::disassemble_chunk(&func.borrow().chunk, &func.borrow().name);
+        self.stack.push(Value::Function(Rc::clone(&func)));
+        self.new_callframe(func);
+        self.run()?;
+        Ok(())
     }
 
-    fn run(&mut self) -> InterpretResult {
+    fn run(&mut self) -> Res {
         loop {
             {
                 let mut frame = self.frames.last_mut().unwrap();
@@ -56,17 +56,17 @@ impl VM {
                         self.stack.push(value.clone());
                     } else {
                         self.print_error(&format!("Undefined variable {}.", global));
-                        break InterpretResult::RuntimeError;
+                        break
                     }
                 }
 
                 OpCode::SetGlobal(global) => {
                     if self.globals.insert(
-                        Rc::clone(&global),
+                        global.clone(),
                         self.stack_last().clone(),
                     ).is_none() {
                         self.print_error(&format!("Undefined variable {}.", global));
-                        break InterpretResult::RuntimeError;
+                        break
                     }
                 }
 
@@ -87,7 +87,7 @@ impl VM {
                         self.stack.push(result)
                     } else {
                         self.print_error("Unary operation had an invalid operand!");
-                        break InterpretResult::RuntimeError
+                        break
                     }
                 }
 
@@ -103,7 +103,7 @@ impl VM {
                         self.stack.push(result)
                     } else {
                         self.print_error("Binary operation had invalid operands!");
-                        break InterpretResult::RuntimeError
+                        break
                     }
                 }
 
@@ -121,7 +121,7 @@ impl VM {
 
                 OpCode::Call(arg_count) => {
                     if !self.call_value(self.stack[self.stack.len() - arg_count - 1].clone(), arg_count) {
-                        break InterpretResult::RuntimeError;
+                        break;
                     }
                 }
 
@@ -131,7 +131,7 @@ impl VM {
                     let frame = self.frames.pop().unwrap();
                     if self.frames.is_empty() {
                         self.stack_pop();
-                        break InterpretResult::Ok
+                        return Ok(())
                     }
 
                     self.stack.truncate(frame.slot_offset);
@@ -139,9 +139,12 @@ impl VM {
                 },
             }
         }
+
+        // All terminations of this loop are to be interpreted as an error,
+        // return will return directly and prevent hitting this
+        Err(Failure::RuntimeError)
     }
 
-    /// Oof
     fn get_current_instruction(&self) -> OpCode {
         let frame = self.frames.last().unwrap();
         frame.function.borrow().chunk.code[frame.ip - 1].code.clone()
@@ -160,7 +163,7 @@ impl VM {
         match opcode {
             OpCode::Negate => -self.stack_pop(),
             OpCode::Not => !self.stack_pop(),
-            _ => panic!("Unary instruction was match with incorrect opcode!"),
+            _ => panic!("unknown opcode"),
         }
     }
 
@@ -179,7 +182,7 @@ impl VM {
             OpCode::Greater => a.greater(b),
             OpCode::Less => a.less(b),
 
-            _ => panic!("Binary instruction was tried to be processed; opcode was not a binary instruction!!")
+            _ => panic!("unknown opcode"),
         }
     }
     
@@ -235,8 +238,7 @@ impl VM {
     }
 }
 
-pub enum InterpretResult {
-    Ok,
+pub enum Failure {
     CompileError,
     RuntimeError,
 }

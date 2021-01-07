@@ -1,7 +1,8 @@
 use std::fmt;
 use std::mem::discriminant;
 use std::ops::*;
-use std::rc::Rc;
+use smol_str::SmolStr;
+
 use crate::chunk::Chunk;
 use crate::MutRc;
 
@@ -10,32 +11,58 @@ pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
-    String(Rc<String>),
-    Function(MutRc<Function>)
+    String(SmolStr),
+    Function(MutRc<Function>),
+    NativeFun(MutRc<NativeFun>)
+}
+
+fn print_fn_name(name: &Option<SmolStr>, f: &mut fmt::Formatter) -> fmt::Result {
+    match name {
+        Some(name) => write!(f, "<fn {}>", name),
+        None => write!(f, "<script>")
+    }
 }
 
 #[derive(PartialEq)]
 pub struct Function {
-    pub name: Option<Rc<String>>,
+    pub name: Option<SmolStr>,
     pub arity: usize,
     pub chunk: Chunk,
 }
 
 impl fmt::Display for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.name {
-            Some(name) => write!(f, "<fn {}>", name),
-            None => write!(f, "<script>")
-        }
+        print_fn_name(&self.name, f)
     }
 }
 
 impl fmt::Debug for Function {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match &self.name {
-            Some(name) => write!(f, "<fn {}>", name),
-            None => write!(f, "<script>")
-        }
+        print_fn_name(&self.name, f)
+    }
+}
+
+pub struct NativeFun {
+    pub name: Option<SmolStr>,
+    pub arity: usize,
+    pub func: Box<dyn Fn(&[Value]) -> Value>
+}
+
+impl fmt::Display for NativeFun {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        print_fn_name(&self.name, f)
+    }
+}
+
+impl fmt::Debug for NativeFun {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        print_fn_name(&self.name, f)
+    }
+}
+
+impl PartialEq for NativeFun {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
     }
 }
 
@@ -76,7 +103,8 @@ impl fmt::Display for Value {
             Value::String(val) => write!(f, "{}", val),
             Value::Bool(val) => write!(f, "{}", val),
             Value::Nil => write!(f, "nil"),
-            Value::Function(func) => write!(f, "{}", func.borrow().to_string()),
+            Value::Function(func) => write!(f, "{}", func.borrow()),
+            Value::NativeFun(func) => write!(f, "{}", func.borrow()),
         }
     }
 }
@@ -88,7 +116,7 @@ impl Add for Value {
         if self.is_number() && other.is_number() {
             Some(Value::Number(self.as_number() + other.as_number()))
         } else {
-            Some(Value::String(Rc::new(self.to_string() + &other.to_string())))
+            Some(Value::String(SmolStr::new(self.to_string() + &other.to_string())))
         }
     }
 }

@@ -7,3 +7,4 @@ edition = "2018"
 [dependencies]
 plain_enum = "0.7.0"
 enum-methods = "0.0.8"
+smol_str = "0.1.17"
