@@ -1,13 +1,13 @@
 use either::Either;
 use smol_str::SmolStr;
-use std::ops::*;
 use std::{cell::Cell, mem::discriminant};
+use std::{collections::HashMap, ops::*};
 use std::{fmt, rc::Rc};
 
 use crate::chunk::Chunk;
 use crate::MutRc;
 
-// left: open, right: closed  
+// left: open, right: closed
 pub type Upval = Rc<Cell<Either<u16, u16>>>;
 
 #[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA)]
@@ -17,7 +17,9 @@ pub enum Value {
     Number(f64),
     String(SmolStr),
     Closure(Rc<ClosureObj>),
-    NativeFun(MutRc<NativeFun>)
+    NativeFun(MutRc<NativeFun>),
+    Class(Rc<Class>),
+    Instance(MutRc<Instance>),
 }
 
 fn print_fn_name(name: &Option<SmolStr>, f: &mut fmt::Formatter) -> fmt::Result {
@@ -96,6 +98,17 @@ impl PartialEq for NativeFun {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Class {
+    pub name: SmolStr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Instance {
+    pub class: Rc<Class>,
+    pub fields: HashMap<SmolStr, Value>,
+}
+
 impl Value {
     pub fn is_falsey(&self) -> bool {
         match self {
@@ -113,6 +126,7 @@ impl Value {
         match self {
             Value::Closure(c) => Some(c.function.borrow().arity),
             Value::NativeFun(f) => Some(f.borrow().arity),
+            Value::Class(_) => Some(0),
             _ => None,
         }
     }
@@ -142,7 +156,9 @@ impl fmt::Display for Value {
             Value::Bool(val) => write!(f, "{}", val),
             Value::Nil => write!(f, "nil"),
             Value::Closure(func) => write!(f, "{}", func.function.borrow()),
-            Value::NativeFun(func) => write!(f, "{}", func.borrow())
+            Value::NativeFun(func) => write!(f, "{}", func.borrow()),
+            Value::Class(cls) => write!(f, "<class {}>", cls.name),
+            Value::Instance(obj) => write!(f, "<{} instance>", obj.borrow().class.name),
         }
     }
 }

@@ -1,4 +1,9 @@
-use std::{cell::{Cell, RefCell}, collections::{HashMap, HashSet}, fs, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    cell::{Cell, RefCell},
+    collections::{HashMap, HashSet},
+    fs,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use either::Either;
 use smol_str::SmolStr;
@@ -7,7 +12,7 @@ use super::compiler::Compiler;
 use super::disassembler;
 use super::opcode::OpCode;
 use super::value::Value;
-use crate::value::{ClosureObj, NativeFun, Upval};
+use crate::value::{Class, ClosureObj, Instance, NativeFun, Upval};
 use std::rc::Rc;
 
 type Res = Result<(), Failure>;
@@ -115,6 +120,37 @@ impl VM {
                     };
                 }
 
+                OpCode::GetProperty(name) => {
+                    let inst = if let Value::Instance(inst) = self.stack_last() {
+                        inst
+                    } else {
+                        self.print_error("Only instances have properties.");
+                        break;
+                    };
+
+                    let field = inst.borrow().fields.get(&name).cloned();
+                    if let Some(value) = field {
+                        self.stack.pop(); // Instance
+                        self.stack.push(value);
+                    } else {
+                        self.print_error(&format!("Undefined property '{}'.", name));
+                        break;
+                    }
+                }
+
+                OpCode::SetProperty(name) => {
+                    let value = self.stack.pop().unwrap();
+                    let inst = if let Value::Instance(inst) = self.stack.pop().unwrap() {
+                        inst
+                    } else {
+                        self.print_error("Only instances have properties.");
+                        break;
+                    };
+
+                    inst.borrow_mut().fields.insert(name, value.clone());
+                    self.stack.push(value);
+                }
+
                 OpCode::Pop => {
                     self.stack_pop();
                 }
@@ -200,6 +236,8 @@ impl VM {
                     self.stack.push(Value::Closure(cls));
                     self.maybe_gc();
                 }
+
+                OpCode::Class(name) => self.stack.push(Value::Class(Rc::new(Class { name }))),
             }
         }
 
@@ -256,25 +294,40 @@ impl VM {
     fn maybe_gc(&mut self) {
         if self.gc_thresh <= self.closed_upvalues.len() {
             self.collect_garbage();
-            self.gc_thresh = self.closed_upvalues.len() * 2; 
+            self.gc_thresh = self.closed_upvalues.len() * 2;
         }
     }
 
     fn collect_garbage(&mut self) {
         let mut keep = HashSet::with_capacity(self.closed_upvalues.len());
-        let mut mark = |cls: &ClosureObj| {
+        self.mark_all(
+            &mut keep,
+            self.stack.iter().chain(self.globals.values()),
+            true,
+        );
+        self.closed_upvalues.retain(|k, _| keep.contains(k));
+    }
+
+    fn mark_all<'m>(
+        &self,
+        keep: &mut HashSet<u16>,
+        iter: impl Iterator<Item = &'m Value>,
+        rec: bool,
+    ) {
+        let mark = |keep: &mut HashSet<u16>, cls: &ClosureObj| {
             for upval in cls.upvalues.iter().filter_map(|v| v.get().right()) {
                 keep.insert(upval);
             }
         };
-
-        for val in self.stack.iter().chain(self.globals.values()) {
-            if let Value::Closure(cls) = val {
-                mark(cls);
+        for val in iter {
+            match val {
+                Value::Closure(cls) => mark(keep, cls),
+                Value::Instance(inst) if rec => {
+                    self.mark_all(keep, inst.borrow().fields.values(), false)
+                }
+                _ => (),
             }
         }
-        
-        self.closed_upvalues.retain(|k, _| keep.contains(k));
     }
 
     fn unary_instruction(&mut self) -> Option<Value> {
@@ -330,6 +383,7 @@ impl VM {
 
         match callee {
             Value::Closure(cls) => self.call(cls, arg_count),
+
             Value::NativeFun(func) => {
                 // TODO: Maybe use smallvec to avoid an allocation every call?
                 let args = self.stack.split_off(self.stack.len() - arg_count);
@@ -347,6 +401,17 @@ impl VM {
                     }
                 }
             }
+
+            Value::Class(class) => {
+                let inst = Instance {
+                    class,
+                    fields: HashMap::with_capacity(8),
+                };
+                self.stack
+                    .push(Value::Instance(Rc::new(RefCell::new(inst))));
+                true
+            }
+
             _ => panic!("unknown callee"),
         }
     }
@@ -423,7 +488,7 @@ impl VM {
             open_upvalues: Vec::with_capacity(5),
             closed_upvalues: HashMap::with_capacity(5),
             upvalue_count: 0,
-            gc_thresh: 5
+            gc_thresh: 5,
         }
     }
 }

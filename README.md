@@ -6,7 +6,7 @@ It also replaces some parts of clox by leveraging Rust's features.
 
 ### Progress
 
-cloxrs is currently up to chapter 26.
+cloxrs is currently up to chapter 27.
 
 ### Notable user-facing differences to clox
 
@@ -43,4 +43,3 @@ cargo run $file
 ### Code style
 
 Follow the style used by rustfmt.
-Max line length is 120.

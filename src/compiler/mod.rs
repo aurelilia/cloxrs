@@ -63,12 +63,25 @@ impl Compiler {
 
     fn declaration(&mut self) {
         match () {
+            _ if self.parser_mut().match_next(Type::Class) => self.class_declaration(),
             _ if self.parser_mut().match_next(Type::Var) => self.var_declaration(),
             _ if self.parser_mut().match_next(Type::Fun) => self.fun_declaration(),
             _ => self.statement(),
         }
 
         self.parser_mut().synchronize();
+    }
+
+    fn class_declaration(&mut self) {
+        self.consume(Type::Identifier, "Expected class name.");
+        self.declare_variable();
+        let name = self.previous().lexeme;
+
+        self.emit_opcode(OpCode::Class(name.clone()));
+        self.define_variable(Some(name));
+
+        self.consume(Type::LeftBrace, "Expected '{' before class body.");
+        self.consume(Type::RightBrace, "Expected '}' after class body.");
     }
 
     fn fun_declaration(&mut self) {
@@ -317,6 +330,18 @@ impl Compiler {
     fn call(&mut self) {
         let arg_count = self.argument_list();
         self.emit_opcode(OpCode::Call(arg_count))
+    }
+
+    fn dot(&mut self, can_assign: bool) {
+        self.consume(Type::Identifier, "Expected property name after '.'.");
+        let name = self.previous().lexeme;
+
+        if can_assign && self.parser_mut().match_next(Type::Equal) {
+            self.expression();
+            self.emit_opcode(OpCode::SetProperty(name))
+        } else {
+            self.emit_opcode(OpCode::GetProperty(name))
+        }
     }
 
     fn and(&mut self) {
@@ -729,7 +754,10 @@ static RULES: [ParseRule; 40] = [
     ParseRule::new(Precedence::None), // LEFT_BRACE
     ParseRule::new(Precedence::None), // RIGHT_BRACE
     ParseRule::new(Precedence::None), // COMMA
-    ParseRule::new(Precedence::Call), // DOT
+    ParseRule::new_infix(
+        |compiler, can_assign| compiler.dot(can_assign),
+        Precedence::Call,
+    ), // DOT
     ParseRule::new_both(
         // MINUS
         |compiler, _| compiler.unary(),

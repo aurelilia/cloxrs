@@ -8,12 +8,19 @@ use std::rc::Rc;
 pub enum OpCode {
     Constant(Value),
     DefineGlobal(SmolStr),
+
     GetGlobal(SmolStr),
     SetGlobal(SmolStr),
+
     GetUpvalue(usize),
     SetUpvalue(usize),
+
     GetLocal(usize),
     SetLocal(usize),
+
+    GetProperty(SmolStr),
+    SetProperty(SmolStr),
+
     Pop,
     HoistUpvalue,
 
@@ -38,4 +45,5 @@ pub enum OpCode {
     Return,
 
     Closure(Rc<Closure>),
+    Class(SmolStr),
 }
