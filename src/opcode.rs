@@ -4,7 +4,7 @@ use smol_str::SmolStr;
 use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Clone)]
-#[repr(u16)]
+#[repr(u8)]
 pub enum OpCode {
     Constant(Value),
     DefineGlobal(SmolStr),

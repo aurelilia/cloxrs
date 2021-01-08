@@ -68,7 +68,7 @@ fun fib(n) {
 }
 
 var start = clock();
-print fib(30);
+print fib(2);
 print clock() - start;
 
 var content = readfile("test");
@@ -81,6 +81,9 @@ fun outer() {
   fun inner() {
     print x;
   }
-  inner();
+  var a = inner();
+  return inner;
 }
-outer();
+
+var o = outer();
+o();

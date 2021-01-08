@@ -1,9 +1,4 @@
-use std::{
-    cell::{Cell, RefCell},
-    collections::HashMap,
-    fs,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{cell::{Cell, RefCell}, collections::{HashMap, HashSet}, fs, time::{SystemTime, UNIX_EPOCH}};
 
 use either::Either;
 use smol_str::SmolStr;
@@ -23,8 +18,9 @@ pub struct VM {
     stack: Vec<Value>,
     globals: HashMap<SmolStr, Value>,
     open_upvalues: Vec<Upval>,
-    closed_upvalues: Vec<Value>,
-    gc_timer: u8,
+    closed_upvalues: HashMap<u16, Value>,
+    upvalue_count: u16,
+    gc_thresh: usize,
 }
 
 impl VM {
@@ -103,7 +99,7 @@ impl VM {
                     let upval = &frame.closure.upvalues[index];
                     let val = match upval.get() {
                         Either::Left(idx) => self.stack[idx as usize].clone(),
-                        Either::Right(idx) => self.closed_upvalues[idx as usize].clone(),
+                        Either::Right(idx) => self.closed_upvalues[&idx].clone(),
                     };
                     self.stack.push(val)
                 }
@@ -111,11 +107,12 @@ impl VM {
                 OpCode::SetUpvalue(index) => {
                     let val = self.stack.last().unwrap().clone();
                     let upval = &frame.closure.upvalues[index];
-                    let loc = match upval.get() {
-                        Either::Left(idx) => &mut self.stack[idx as usize],
-                        Either::Right(idx) => &mut self.closed_upvalues[idx as usize],
+                    match upval.get() {
+                        Either::Left(idx) => self.stack[idx as usize] = val,
+                        Either::Right(idx) => {
+                            self.closed_upvalues.insert(idx, val);
+                        }
                     };
-                    *loc = val;
                 }
 
                 OpCode::Pop => {
@@ -200,7 +197,8 @@ impl VM {
                         function: Rc::clone(&cls.function),
                         upvalues: ups.collect(),
                     });
-                    self.stack.push(Value::Closure(cls))
+                    self.stack.push(Value::Closure(cls));
+                    self.maybe_gc();
                 }
             }
         }
@@ -230,10 +228,10 @@ impl VM {
         let upval = self.find_upvalue(self.stack.len() as u16);
         if let Some((idx, upval)) = upval {
             upval.set(Either::Right(self.closed_upvalues.len() as u16));
-            self.closed_upvalues.push(val);
-            self.open_upvalues.remove(idx);
 
-            self.maybe_gc();
+            self.closed_upvalues.insert(self.upvalue_count, val);
+            self.upvalue_count += 1;
+            self.open_upvalues.remove(idx);
         }
     }
 
@@ -256,15 +254,27 @@ impl VM {
     }
 
     fn maybe_gc(&mut self) {
-        self.gc_timer += 1;
-        if self.gc_timer > 128 {
-            self.gc_timer = 0;
+        if self.gc_thresh <= self.closed_upvalues.len() {
             self.collect_garbage();
+            self.gc_thresh = self.closed_upvalues.len() * 2; 
         }
     }
 
     fn collect_garbage(&mut self) {
-        // TODO
+        let mut keep = HashSet::with_capacity(self.closed_upvalues.len());
+        let mut mark = |cls: &ClosureObj| {
+            for upval in cls.upvalues.iter().filter_map(|v| v.get().right()) {
+                keep.insert(upval);
+            }
+        };
+
+        for val in self.stack.iter().chain(self.globals.values()) {
+            if let Value::Closure(cls) = val {
+                mark(cls);
+            }
+        }
+        
+        self.closed_upvalues.retain(|k, _| keep.contains(k));
     }
 
     fn unary_instruction(&mut self) -> Option<Value> {
@@ -323,6 +333,7 @@ impl VM {
             Value::NativeFun(func) => {
                 // TODO: Maybe use smallvec to avoid an allocation every call?
                 let args = self.stack.split_off(self.stack.len() - arg_count);
+                self.stack.pop(); // Pop the function still on the stack
                 let result = (func.borrow().func)(&args);
                 match result {
                     Ok(value) => {
@@ -410,8 +421,9 @@ impl VM {
             stack: Vec::with_capacity(256),
             globals: HashMap::with_capacity(16),
             open_upvalues: Vec::with_capacity(5),
-            closed_upvalues: Vec::with_capacity(5),
-            gc_timer: 0,
+            closed_upvalues: HashMap::with_capacity(5),
+            upvalue_count: 0,
+            gc_thresh: 5
         }
     }
 }

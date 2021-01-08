@@ -6,9 +6,9 @@ It also replaces some parts of clox by leveraging Rust's features.
 
 ### Progress
 
-cloxrs is currently up to chapter 25.
+cloxrs is currently up to chapter 26.
 
-### Notable differences to clox
+### Notable user-facing differences to clox
 
 - Stack can be bigger than 256
 - Strings can be concatenated with anything
@@ -19,6 +19,16 @@ cloxrs is currently up to chapter 25.
 if file could not be read
 - `writefile`: Takes 1 path/string parameter and one file content parameter, 
 returns success (bool)
+
+### Implementation differences
+
+- Opcodes are simply an enum, which often simply contains the opcode arguments.
+
+- Regular Rust HashMaps are used instead of a custom implementation.
+
+- Due to not wanting to use unsafe Rust, upvalues are implemented entirely
+different and use `Rc<Cell<...>>`. This mostly removes the need for GC, which is why cloxrs
+GC only has to infreqently collect upvalues.
 
 ### Build/Run
 
