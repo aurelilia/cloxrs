@@ -18,8 +18,9 @@ pub enum Value {
     String(SmolStr),
     Closure(Rc<ClosureObj>),
     NativeFun(MutRc<NativeFun>),
-    Class(Rc<Class>),
+    Class(MutRc<Class>),
     Instance(MutRc<Instance>),
+    BoundMethod(Rc<BoundMethod>),
 }
 
 fn print_fn_name(name: &Option<SmolStr>, f: &mut fmt::Formatter) -> fmt::Result {
@@ -101,12 +102,19 @@ impl PartialEq for NativeFun {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Class {
     pub name: SmolStr,
+    pub methods: HashMap<SmolStr, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instance {
-    pub class: Rc<Class>,
+    pub class: MutRc<Class>,
     pub fields: HashMap<SmolStr, Value>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoundMethod {
+    pub receiver: Value,
+    pub method: Rc<ClosureObj>,
 }
 
 impl Value {
@@ -127,6 +135,7 @@ impl Value {
             Value::Closure(c) => Some(c.function.borrow().arity),
             Value::NativeFun(f) => Some(f.borrow().arity),
             Value::Class(_) => Some(0),
+            Value::BoundMethod(method) => Some(method.method.function.borrow().arity),
             _ => None,
         }
     }
@@ -157,8 +166,13 @@ impl fmt::Display for Value {
             Value::Nil => write!(f, "nil"),
             Value::Closure(func) => write!(f, "{}", func.function.borrow()),
             Value::NativeFun(func) => write!(f, "{}", func.borrow()),
-            Value::Class(cls) => write!(f, "<class {}>", cls.name),
-            Value::Instance(obj) => write!(f, "<{} instance>", obj.borrow().class.name),
+            Value::Class(cls) => write!(f, "<class {}>", cls.borrow().name),
+            Value::Instance(obj) => write!(f, "<{} instance>", obj.borrow().class.borrow().name),
+            Value::BoundMethod(meth) => write!(
+                f,
+                "<bound method {}>",
+                meth.method.function.borrow().name.as_ref().unwrap()
+            ),
         }
     }
 }

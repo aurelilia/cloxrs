@@ -12,7 +12,7 @@ use super::compiler::Compiler;
 use super::disassembler;
 use super::opcode::OpCode;
 use super::value::Value;
-use crate::value::{Class, ClosureObj, Instance, NativeFun, Upval};
+use crate::value::{BoundMethod, Class, ClosureObj, Instance, NativeFun, Upval};
 use std::rc::Rc;
 
 type Res = Result<(), Failure>;
@@ -121,7 +121,7 @@ impl VM {
                 }
 
                 OpCode::GetProperty(name) => {
-                    let inst = if let Value::Instance(inst) = self.stack.pop().unwrap() {
+                    let inst = if let Value::Instance(inst) = self.stack_pop() {
                         inst
                     } else {
                         self.print_error("Only instances have properties.");
@@ -132,13 +132,22 @@ impl VM {
                     if let Some(value) = field {
                         self.stack.push(value);
                     } else {
-                        self.stack.push(Value::Nil)
+                        let method = inst.borrow().class.borrow().methods.get(&name).cloned();
+                        if let Some(method) = method {
+                            let bound = BoundMethod {
+                                receiver: Value::Instance(inst),
+                                method: Rc::clone(method.as_closure()),
+                            };
+                            self.stack.push(Value::BoundMethod(Rc::new(bound)));
+                        } else {
+                            self.stack.push(Value::Nil);
+                        }
                     }
                 }
 
                 OpCode::SetProperty(name) => {
-                    let value = self.stack.pop().unwrap();
-                    let inst = if let Value::Instance(inst) = self.stack.pop().unwrap() {
+                    let value = self.stack_pop();
+                    let inst = if let Value::Instance(inst) = self.stack_pop() {
                         inst
                     } else {
                         self.print_error("Only instances have properties.");
@@ -239,7 +248,25 @@ impl VM {
                     self.maybe_gc();
                 }
 
-                OpCode::Class(name) => self.stack.push(Value::Class(Rc::new(Class { name }))),
+                OpCode::Class(name) => {
+                    self.stack.push(Value::Class(Rc::new(RefCell::new(Class {
+                        name,
+                        methods: HashMap::new(),
+                    }))))
+                }
+
+                OpCode::EndClass => {
+                    let mut methods = HashMap::with_capacity(5);
+
+                    let mut last = self.stack_pop();
+                    while let Value::Closure(cls) = last {
+                        let name = cls.function.borrow().name.clone().unwrap();
+                        methods.insert(name, Value::Closure(cls));
+                        last = self.stack_pop();
+                    }
+                    
+                    last.as_class().borrow_mut().methods = methods;
+                }
             }
         }
 
@@ -316,20 +343,28 @@ impl VM {
         iter: impl Iterator<Item = &'m Value>,
         rec: bool,
     ) {
+        for val in iter {
+            self.mark_value(keep, val, rec);
+        }
+    }
+
+    fn mark_value<'m>(&self, keep: &mut HashSet<u16>, val: &'m Value, rec: bool) {
         let mark = |keep: &mut HashSet<u16>, cls: &ClosureObj| {
             for upval in cls.upvalues.iter().filter_map(|v| v.get().right()) {
                 keep.insert(upval);
             }
         };
-        for val in iter {
-            match val {
-                Value::Closure(cls) => mark(keep, cls),
-                Value::Instance(inst) if rec => {
-                    self.mark_all(keep, inst.borrow().fields.values(), false)
-                }
-                _ => (),
+
+        match val {
+            Value::Closure(cls) => mark(keep, cls),
+            Value::Class(cls) => self.mark_all(keep, cls.borrow().methods.values(), false),
+            Value::Instance(inst) if rec => {
+                self.mark_all(keep, inst.borrow().fields.values(), false);
+                self.mark_all(keep, inst.borrow().class.borrow().methods.values(), false);
             }
-        }
+            Value::BoundMethod(method) if rec => self.mark_value(keep, &method.receiver, false),
+            _ => (),
+        };
     }
 
     fn unary_instruction(&mut self) -> Option<Value> {
@@ -389,7 +424,7 @@ impl VM {
             Value::NativeFun(func) => {
                 // TODO: Maybe use smallvec to avoid an allocation every call?
                 let args = self.stack.split_off(self.stack.len() - arg_count);
-                self.stack.pop(); // Pop the function still on the stack
+                self.stack_pop(); // Pop the function still on the stack
                 let result = (func.borrow().func)(&args);
                 match result {
                     Ok(value) => {
@@ -409,10 +444,13 @@ impl VM {
                     class,
                     fields: HashMap::with_capacity(8),
                 };
+                self.stack_pop();
                 self.stack
                     .push(Value::Instance(Rc::new(RefCell::new(inst))));
                 true
             }
+
+            Value::BoundMethod(method) => self.call(Rc::clone(&method.method), arg_count),
 
             _ => panic!("unknown callee"),
         }

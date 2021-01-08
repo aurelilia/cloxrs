@@ -75,13 +75,24 @@ impl Compiler {
     fn class_declaration(&mut self) {
         self.consume(Type::Identifier, "Expected class name.");
         self.declare_variable();
-        let name = self.previous().lexeme;
+        let name = self.previous();
 
-        self.emit_opcode(OpCode::Class(name.clone()));
-        self.define_variable(Some(name));
+        self.emit_opcode(OpCode::Class(name.lexeme.clone()));
+        self.define_variable(Some(name.lexeme.clone()));
+        self.named_variable(&name, false);
 
         self.consume(Type::LeftBrace, "Expected '{' before class body.");
+        while !self.parser().check(Type::RightBrace) && !self.parser().check(Type::EOF) {
+            self.method();
+        }
         self.consume(Type::RightBrace, "Expected '}' after class body.");
+
+        self.emit_opcode(OpCode::EndClass);
+    }
+
+    fn method(&mut self) {
+        self.consume(Type::Identifier, "Expected method name.");
+        self.function(FunctionType::Function);
     }
 
     fn fun_declaration(&mut self) {
@@ -514,8 +525,8 @@ impl Compiler {
     }
 
     fn define_variable(&mut self, global: Option<SmolStr>) {
-        if let Some(name) = global {
-            self.emit_opcode(OpCode::DefineGlobal(name));
+        if self.scope_depth == 0 {
+            self.emit_opcode(OpCode::DefineGlobal(global.unwrap()));
         } else {
             self.mark_initialized()
         }

@@ -46,4 +46,5 @@ pub enum OpCode {
 
     Closure(Rc<Closure>),
     Class(SmolStr),
+    EndClass,
 }

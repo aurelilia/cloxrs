@@ -24,12 +24,13 @@ returns success (bool)
 ### Implementation differences
 
 - Opcodes are simply an enum, which often simply contains the opcode arguments.
-
 - Regular Rust HashMaps are used instead of a custom implementation.
-
 - Due to not wanting to use unsafe Rust, upvalues are implemented entirely
 different and use `Rc<Cell<...>>`. This mostly removes the need for GC, which is why cloxrs
 GC only has to infreqently collect upvalues.
+- Methods are implemented by adding an `EndClass` opcode instead of `Method`, and simply pushing each method onto the
+stack above the class. `EndClass` then simply pops methods off the stack until it reaches the class,
+where it then inserts them.
 
 ### Build/Run
 
