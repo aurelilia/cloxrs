@@ -1,6 +1,7 @@
 #![feature(const_fn)]
 #![feature(const_mut_refs)]
 #![feature(const_fn_fn_ptr_basics)]
+#![feature(drain_filter)]
 
 #[macro_use]
 extern crate plain_enum;

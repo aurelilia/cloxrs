@@ -6,7 +6,7 @@ It also replaces some parts of clox by leveraging Rust's features.
 
 ### Progress
 
-cloxrs is currently up to chapter 24.
+cloxrs is currently up to chapter 25.
 
 ### Notable differences to clox
 

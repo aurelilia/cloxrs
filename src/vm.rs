@@ -1,26 +1,30 @@
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::HashMap,
     fs,
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use either::Either;
 use smol_str::SmolStr;
 
 use super::compiler::Compiler;
 use super::disassembler;
 use super::opcode::OpCode;
 use super::value::Value;
-use crate::value::{Function, NativeFun};
-use crate::MutRc;
+use crate::value::{ClosureObj, NativeFun, Upval};
 use std::rc::Rc;
 
 type Res = Result<(), Failure>;
 
+#[derive(Debug)]
 pub struct VM {
     frames: Vec<CallFrame>,
     stack: Vec<Value>,
     globals: HashMap<SmolStr, Value>,
+    open_upvalues: Vec<Upval>,
+    closed_upvalues: Vec<Value>,
+    gc_timer: u8,
 }
 
 impl VM {
@@ -28,12 +32,13 @@ impl VM {
         self.frames.clear();
         let mut compiler = Compiler::new(source);
 
-        let func = compiler.compile().ok_or(Failure::CompileError)?;
-        disassembler::disassemble_chunk(&func.borrow().chunk, &func.borrow().name);
+        let cls = compiler.compile().ok_or(Failure::CompileError)?;
+        disassembler::disassemble_chunk(&cls.function.borrow().chunk, &cls.function.borrow().name);
 
         self.define_natives();
-        self.stack.push(Value::Function(Rc::clone(&func)));
-        self.new_callframe(func);
+        let cls = cls.to_obj();
+        self.stack.push(Value::Closure(cls.clone()));
+        self.new_callframe(cls);
 
         self.run()
     }
@@ -94,9 +99,30 @@ impl VM {
                     self.stack[offset] = self.stack_last().clone();
                 }
 
+                OpCode::GetUpvalue(index) => {
+                    let upval = &frame.closure.upvalues[index];
+                    let val = match upval.get() {
+                        Either::Left(idx) => self.stack[idx as usize].clone(),
+                        Either::Right(idx) => self.closed_upvalues[idx as usize].clone(),
+                    };
+                    self.stack.push(val)
+                }
+
+                OpCode::SetUpvalue(index) => {
+                    let val = self.stack.last().unwrap().clone();
+                    let upval = &frame.closure.upvalues[index];
+                    let loc = match upval.get() {
+                        Either::Left(idx) => &mut self.stack[idx as usize],
+                        Either::Right(idx) => &mut self.closed_upvalues[idx as usize],
+                    };
+                    *loc = val;
+                }
+
                 OpCode::Pop => {
                     self.stack_pop();
                 }
+
+                OpCode::HoistUpvalue => self.pop_or_hoist(),
 
                 OpCode::Negate | OpCode::Not => {
                     let result = self.unary_instruction();
@@ -147,15 +173,34 @@ impl VM {
 
                 OpCode::Return => {
                     let result = self.stack_pop();
+                    while self.stack.len() != self.frames.last().unwrap().slot_offset {
+                        self.pop_or_hoist();
+                    }
 
-                    let frame = self.frames.pop().unwrap();
+                    self.frames.pop().unwrap();
                     if self.frames.is_empty() {
-                        self.stack_pop();
+                        self.collect_garbage();
                         return Ok(());
                     }
 
-                    self.stack.truncate(frame.slot_offset);
                     self.stack.push(result);
+                }
+
+                OpCode::Closure(cls) => {
+                    let ups = cls.upvalues.iter().map(|up| {
+                        if up.is_local {
+                            self.capture_upvalue(
+                                (self.frames.last().unwrap().slot_offset + up.index + 1) as u16,
+                            )
+                        } else {
+                            Rc::clone(&self.frames.last().unwrap().closure.upvalues[up.index])
+                        }
+                    });
+                    let cls = Rc::new(ClosureObj {
+                        function: Rc::clone(&cls.function),
+                        upvalues: ups.collect(),
+                    });
+                    self.stack.push(Value::Closure(cls))
                 }
             }
         }
@@ -167,7 +212,7 @@ impl VM {
 
     fn get_current_instruction(&self) -> OpCode {
         let frame = self.frames.last().unwrap();
-        frame.function.borrow().chunk.code[frame.ip - 1]
+        frame.closure.function.borrow().chunk.code[frame.ip - 1]
             .code
             .clone()
     }
@@ -178,6 +223,48 @@ impl VM {
 
     fn stack_pop(&mut self) -> Value {
         self.stack.pop().expect("Stack was empty?")
+    }
+
+    fn pop_or_hoist(&mut self) {
+        let val = self.stack_pop();
+        let upval = self.find_upvalue(self.stack.len() as u16);
+        if let Some((idx, upval)) = upval {
+            upval.set(Either::Right(self.closed_upvalues.len() as u16));
+            self.closed_upvalues.push(val);
+            self.open_upvalues.remove(idx);
+
+            self.maybe_gc();
+        }
+    }
+
+    fn capture_upvalue(&mut self, idx: u16) -> Upval {
+        let existing = self.find_upvalue(idx);
+        if let Some(exisiting) = existing {
+            Rc::clone(exisiting.1)
+        } else {
+            let new = Rc::new(Cell::new(Either::Left(idx)));
+            self.open_upvalues.push(Rc::clone(&new));
+            new
+        }
+    }
+
+    fn find_upvalue(&self, idx: u16) -> Option<(usize, &Upval)> {
+        self.open_upvalues
+            .iter()
+            .enumerate()
+            .find(|(_, v)| v.get().left().unwrap() == idx)
+    }
+
+    fn maybe_gc(&mut self) {
+        self.gc_timer += 1;
+        if self.gc_timer > 128 {
+            self.gc_timer = 0;
+            self.collect_garbage();
+        }
+    }
+
+    fn collect_garbage(&mut self) {
+        // TODO
     }
 
     fn unary_instruction(&mut self) -> Option<Value> {
@@ -208,9 +295,9 @@ impl VM {
         }
     }
 
-    fn new_callframe(&mut self, function: MutRc<Function>) {
+    fn new_callframe(&mut self, closure: Rc<ClosureObj>) {
         self.frames.push(CallFrame {
-            function,
+            closure,
             ip: 0,
             slot_offset: self.stack.len() - 1,
         });
@@ -232,7 +319,7 @@ impl VM {
         }
 
         match callee {
-            Value::Function(func) => self.call(func, arg_count),
+            Value::Closure(cls) => self.call(cls, arg_count),
             Value::NativeFun(func) => {
                 // TODO: Maybe use smallvec to avoid an allocation every call?
                 let args = self.stack.split_off(self.stack.len() - arg_count);
@@ -253,8 +340,8 @@ impl VM {
         }
     }
 
-    fn call(&mut self, func: MutRc<Function>, arg_count: usize) -> bool {
-        self.new_callframe(func);
+    fn call(&mut self, cls: Rc<ClosureObj>, arg_count: usize) -> bool {
+        self.new_callframe(cls);
         self.frames.last_mut().unwrap().slot_offset -= arg_count;
         true
     }
@@ -263,12 +350,12 @@ impl VM {
         let frame = self.frames.last().unwrap();
         println!(
             "[Line {}] Runtime error: {}",
-            frame.function.borrow().chunk.code[frame.ip - 1].line,
+            frame.closure.function.borrow().chunk.code[frame.ip - 1].line,
             message
         );
         println!("Stack trace:");
         for frame in self.frames.iter().rev() {
-            let func = frame.function.borrow();
+            let func = frame.closure.function.borrow();
             let line = func.chunk.code[frame.ip - 1].line;
             println!("[Line {}] in {}", line, func)
         }
@@ -322,6 +409,9 @@ impl VM {
             frames: vec![],
             stack: Vec::with_capacity(256),
             globals: HashMap::with_capacity(16),
+            open_upvalues: Vec::with_capacity(5),
+            closed_upvalues: Vec::with_capacity(5),
+            gc_timer: 0,
         }
     }
 }
@@ -331,8 +421,9 @@ pub enum Failure {
     RuntimeError,
 }
 
+#[derive(Debug)]
 pub struct CallFrame {
-    function: MutRc<Function>,
+    closure: Rc<ClosureObj>,
     ip: usize,
     slot_offset: usize,
 }

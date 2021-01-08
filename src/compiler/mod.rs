@@ -8,12 +8,15 @@ use smol_str::SmolStr;
 use super::chunk::{Chunk, OpCodeLine};
 use super::opcode::OpCode;
 use super::value::Value;
-use crate::value::Function;
+use crate::value::{Closure, Function, Upvalue};
 use crate::MutRc;
-use crate::{compiler::parser::Parser};
-use std::cell::{Ref, RefCell, RefMut};
+use crate::{compiler::parser::Parser, disassembler::disassemble_chunk};
 use std::mem;
 use std::rc::Rc;
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    mem::MaybeUninit,
+};
 use token::*;
 
 #[derive(Debug, PartialEq)]
@@ -30,21 +33,27 @@ pub struct Compiler {
 
     locals: Vec<Local>,
     scope_depth: usize,
+    upvalues: Vec<Upvalue>,
+
+    enclosing: Option<Box<Compiler>>,
 }
 
 impl Compiler {
-    pub fn compile(&mut self) -> Option<MutRc<Function>> {
+    pub fn compile(&mut self) -> Option<Rc<Closure>> {
         self.parser_mut().advance();
 
         while !self.parser_mut().match_next(Type::EOF) {
             self.declaration();
         }
 
-        let fun = self.end_compiliation();
+        let function = self.end_compiliation();
         if self.parser_mut().had_error {
             None
         } else {
-            Some(fun)
+            Some(Rc::new(Closure {
+                function,
+                upvalues: vec![],
+            }))
         }
     }
 
@@ -83,13 +92,23 @@ impl Compiler {
         self.define_variable(global);
     }
 
+    // This is a very hacky solution...
+    // Since a compiler needs access to its enclosing compiler, self
+    // is replaced by an uninit (undefined behavior!!) to get ownership.
+    #[allow(clippy::clippy::uninit_assumed_init)]
+    #[allow(invalid_value)]
     fn function(&mut self, function_type: FunctionType) {
+        let tmp: Compiler = mem::replace(self, unsafe { MaybeUninit::uninit().assume_init() });
+
+        let name = tmp.parser_mut().previous.lexeme.clone();
         let mut comp = Compiler {
-            parser: Rc::clone(&self.parser),
-            function: Self::new_function(Some(self.parser_mut().previous.lexeme.clone()), 0),
+            parser: Rc::clone(&tmp.parser),
+            function: Self::new_function(Some(name), 0),
             function_type,
             locals: vec![],
             scope_depth: 0,
+            upvalues: Vec::with_capacity(5),
+            enclosing: Some(Box::new(tmp)),
         };
         comp.begin_scope();
 
@@ -111,7 +130,16 @@ impl Compiler {
         comp.block();
 
         let fun = comp.end_compiliation();
-        self.emit_opcode(OpCode::Constant(Value::Function(fun)))
+        disassemble_chunk(&fun.borrow().chunk, &fun.borrow().name);
+        let closure = Closure {
+            function: fun,
+            upvalues: comp.upvalues,
+        };
+
+        let uninitialized = mem::replace(self, *comp.enclosing.unwrap());
+        mem::forget(uninitialized);
+
+        self.emit_opcode(OpCode::Closure(Rc::new(closure)));
     }
 
     fn statement(&mut self) {
@@ -309,47 +337,6 @@ impl Compiler {
         self.patch_jump(end_jump);
     }
 
-    fn literal(&mut self) {
-        match self.previous().t_type {
-            Type::False => self.emit_opcode(OpCode::Constant(Value::Bool(false))),
-            Type::Nil => self.emit_opcode(OpCode::Constant(Value::Nil)),
-            Type::True => self.emit_opcode(OpCode::Constant(Value::Bool(true))),
-            Type::Number => {
-                let value: f64 = self.previous().lexeme.parse().expect("Invalid number?");
-                self.emit_opcode(OpCode::Constant(Value::Number(value)));
-            }
-            _ => (),
-        }
-    }
-
-    fn string(&mut self) {
-        self.emit_opcode(OpCode::Constant(Value::String(self.previous().lexeme)))
-    }
-
-    fn variable(&mut self, can_assign: bool) {
-        self.named_variable(&self.previous(), can_assign);
-    }
-
-    fn named_variable(&mut self, name: &Token, can_assign: bool) {
-        let get_op;
-        let set_op;
-        let arg = self.resolve_local(&name);
-        if let Some(arg) = arg {
-            get_op = OpCode::GetLocal(arg);
-            set_op = OpCode::SetLocal(arg);
-        } else {
-            get_op = OpCode::GetGlobal(name.lexeme.clone());
-            set_op = OpCode::SetGlobal(name.lexeme.clone());
-        }
-
-        if can_assign && self.parser_mut().match_next(Type::Equal) {
-            self.expression();
-            self.emit_opcode(set_op);
-        } else {
-            self.emit_opcode(get_op);
-        }
-    }
-
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.parser_mut().advance();
         let prefix_rule = Compiler::get_rule(self.previous().t_type).prefix;
@@ -381,16 +368,95 @@ impl Compiler {
         }
     }
 
-    fn resolve_local(&mut self, name: &Token) -> Option<usize> {
-        for (index, local) in self.locals.iter().enumerate().rev() {
+    fn literal(&mut self) {
+        match self.previous().t_type {
+            Type::False => self.emit_opcode(OpCode::Constant(Value::Bool(false))),
+            Type::Nil => self.emit_opcode(OpCode::Constant(Value::Nil)),
+            Type::True => self.emit_opcode(OpCode::Constant(Value::Bool(true))),
+            Type::Number => {
+                let value: f64 = self.previous().lexeme.parse().expect("Invalid number?");
+                self.emit_opcode(OpCode::Constant(Value::Number(value)));
+            }
+            _ => (),
+        }
+    }
+
+    fn string(&mut self) {
+        self.emit_opcode(OpCode::Constant(Value::String(self.previous().lexeme)))
+    }
+
+    fn variable(&mut self, can_assign: bool) {
+        self.named_variable(&self.previous(), can_assign);
+    }
+
+    fn named_variable(&mut self, name: &Token, can_assign: bool) {
+        let get_op;
+        let set_op;
+        let arg = self.resolve_local(&name, false);
+        if let Some(arg) = arg {
+            get_op = OpCode::GetLocal(arg);
+            set_op = OpCode::SetLocal(arg);
+        } else if let Some(upvalue) = self.resolve_upvalue(name) {
+            get_op = OpCode::GetUpvalue(upvalue);
+            set_op = OpCode::SetUpvalue(upvalue);
+        } else {
+            get_op = OpCode::GetGlobal(name.lexeme.clone());
+            set_op = OpCode::SetGlobal(name.lexeme.clone());
+        }
+
+        if can_assign && self.parser_mut().match_next(Type::Equal) {
+            self.expression();
+            self.emit_opcode(set_op);
+        } else {
+            self.emit_opcode(get_op);
+        }
+    }
+
+    fn resolve_local(&mut self, name: &Token, capture: bool) -> Option<usize> {
+        for (index, local) in self.locals.iter_mut().enumerate().rev() {
             if name.lexeme == local.name.lexeme {
                 if !local.initialized {
-                    self.error("Cannot read variable in its own initializer.");
+                    self.parser
+                        .borrow_mut()
+                        .error("Cannot read variable in its own initializer.");
                 }
+                local.captured = local.captured || capture;
                 return Some(index);
             }
         }
         None
+    }
+
+    fn resolve_upvalue(&mut self, name: &Token) -> Option<usize> {
+        if let Some(local) = self
+            .enclosing
+            .as_mut()
+            .map(|e| e.resolve_local(name, true))
+            .flatten()
+        {
+            Some(self.add_upvalue(local, true))
+        } else if let Some(local) = self
+            .enclosing
+            .as_mut()
+            .map(|e| e.resolve_upvalue(name))
+            .flatten()
+        {
+            Some(self.add_upvalue(local, false))
+        } else {
+            None
+        }
+    }
+
+    fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
+        for (i, value) in self.upvalues.iter().enumerate() {
+            if value.index == index && value.is_local == is_local {
+                return i;
+            }
+        }
+
+        self.upvalues.push(Upvalue { index, is_local });
+        self.function.upvalue_count += 1;
+        self.function.upvalue_count - 1
     }
 
     fn parse_variable(&mut self, message: &str) -> Option<SmolStr> {
@@ -451,6 +517,7 @@ impl Compiler {
             name,
             depth: self.scope_depth,
             initialized: false,
+            captured: false,
         });
     }
 
@@ -512,11 +579,17 @@ impl Compiler {
 
     fn end_scope(&mut self) {
         self.scope_depth -= 1;
+        dbg!(&self.locals);
 
         while !self.locals.is_empty()
             && self.locals.last().expect("Empty locals?").depth > self.scope_depth
         {
-            self.emit_opcode(OpCode::Pop);
+            let op = if self.locals.last().unwrap().captured {
+                OpCode::HoistUpvalue
+            } else {
+                OpCode::Pop
+            };
+            self.emit_opcode(op);
             self.locals.pop();
         }
     }
@@ -546,6 +619,7 @@ impl Compiler {
             name,
             arity,
             chunk: Chunk::new(),
+            upvalue_count: 0,
         }
     }
 
@@ -553,7 +627,7 @@ impl Compiler {
         self.parser_mut().consume(t_type, message)
     }
 
-    fn error(&mut self, message: &str) {
+    fn error(&self, message: &str) {
         self.parser_mut().error(message)
     }
 
@@ -576,8 +650,12 @@ impl Compiler {
                 name: Token::generic_token(Type::Identifier),
                 depth: 0,
                 initialized: false,
+                captured: false,
             }],
             scope_depth: 0,
+            upvalues: Vec::with_capacity(3),
+
+            enclosing: None,
         }
     }
 }
@@ -596,10 +674,12 @@ plain_enum_mod! {this, Precedence {
     Primary,
 }}
 
+#[derive(Debug)]
 struct Local {
     name: Token,
     depth: usize,
     initialized: bool,
+    captured: bool,
 }
 
 struct ParseRule {

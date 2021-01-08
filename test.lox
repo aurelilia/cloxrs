@@ -75,3 +75,12 @@ var content = readfile("test");
 print content;
 content = content + " appendage";
 writefile("test", content);
+
+fun outer() {
+  var x = "outside";
+  fun inner() {
+    print x;
+  }
+  inner();
+}
+outer();

@@ -1,10 +1,14 @@
+use either::Either;
 use smol_str::SmolStr;
-use std::fmt;
-use std::mem::discriminant;
 use std::ops::*;
+use std::{cell::Cell, mem::discriminant};
+use std::{fmt, rc::Rc};
 
 use crate::chunk::Chunk;
 use crate::MutRc;
+
+// left: open, right: closed  
+pub type Upval = Rc<Cell<Either<u16, u16>>>;
 
 #[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA)]
 pub enum Value {
@@ -12,8 +16,8 @@ pub enum Value {
     Nil,
     Number(f64),
     String(SmolStr),
-    Function(MutRc<Function>),
-    NativeFun(MutRc<NativeFun>),
+    Closure(Rc<ClosureObj>),
+    NativeFun(MutRc<NativeFun>)
 }
 
 fn print_fn_name(name: &Option<SmolStr>, f: &mut fmt::Formatter) -> fmt::Result {
@@ -28,6 +32,7 @@ pub struct Function {
     pub name: Option<SmolStr>,
     pub arity: usize,
     pub chunk: Chunk,
+    pub upvalue_count: usize,
 }
 
 impl fmt::Display for Function {
@@ -42,6 +47,31 @@ impl fmt::Debug for Function {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Closure {
+    pub function: MutRc<Function>,
+    pub upvalues: Vec<Upvalue>,
+}
+
+impl Closure {
+    pub fn to_obj(&self) -> Rc<ClosureObj> {
+        Rc::new(ClosureObj {
+            function: Rc::clone(&self.function),
+            upvalues: Vec::with_capacity(self.upvalues.len()),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClosureObj {
+    pub function: MutRc<Function>,
+    pub upvalues: Vec<Upval>,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct Upvalue {
+    pub index: usize,
+    pub is_local: bool,
+}
 pub struct NativeFun {
     pub name: SmolStr,
     pub arity: usize,
@@ -81,7 +111,7 @@ impl Value {
 
     pub fn arity(&self) -> Option<usize> {
         match self {
-            Value::Function(f) => Some(f.borrow().arity),
+            Value::Closure(c) => Some(c.function.borrow().arity),
             Value::NativeFun(f) => Some(f.borrow().arity),
             _ => None,
         }
@@ -111,8 +141,8 @@ impl fmt::Display for Value {
             Value::String(val) => write!(f, "{}", val),
             Value::Bool(val) => write!(f, "{}", val),
             Value::Nil => write!(f, "nil"),
-            Value::Function(func) => write!(f, "{}", func.borrow()),
-            Value::NativeFun(func) => write!(f, "{}", func.borrow()),
+            Value::Closure(func) => write!(f, "{}", func.function.borrow()),
+            Value::NativeFun(func) => write!(f, "{}", func.borrow())
         }
     }
 }
