@@ -12,6 +12,7 @@ cloxrs is currently up to chapter 27.
 
 - Stack can be bigger than 256
 - Strings can be concatenated with anything
+- Missing class fields simply produce `nil` instead of a runtime error
 
 ### Additional native functions
 

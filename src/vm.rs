@@ -121,7 +121,7 @@ impl VM {
                 }
 
                 OpCode::GetProperty(name) => {
-                    let inst = if let Value::Instance(inst) = self.stack_last() {
+                    let inst = if let Value::Instance(inst) = self.stack.pop().unwrap() {
                         inst
                     } else {
                         self.print_error("Only instances have properties.");
@@ -130,11 +130,9 @@ impl VM {
 
                     let field = inst.borrow().fields.get(&name).cloned();
                     if let Some(value) = field {
-                        self.stack.pop(); // Instance
                         self.stack.push(value);
                     } else {
-                        self.print_error(&format!("Undefined property '{}'.", name));
-                        break;
+                        self.stack.push(Value::Nil)
                     }
                 }
 
@@ -147,7 +145,11 @@ impl VM {
                         break;
                     };
 
-                    inst.borrow_mut().fields.insert(name, value.clone());
+                    if let Value::Nil = value {
+                        inst.borrow_mut().fields.remove(&name);
+                    } else {
+                        inst.borrow_mut().fields.insert(name, value.clone());
+                    }
                     self.stack.push(value);
                 }
 
