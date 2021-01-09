@@ -2,7 +2,6 @@ use crate::{interner::StrId, value::Closure, UInt};
 use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Clone)]
-#[repr(u8)]
 pub enum OpCode {
     ConstNil,
     ConstBool(bool),

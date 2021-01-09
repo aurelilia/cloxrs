@@ -12,7 +12,6 @@ use crate::{
 pub type Upval = Rc<Cell<Either<u32, u32>>>;
 
 #[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA, EnumIntoGetters)]
-#[repr(u8)]
 pub enum Value {
     Bool(bool),
     Nil,
