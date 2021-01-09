@@ -13,7 +13,6 @@ use crate::{
     MutRc,
 };
 use crate::{
-    opcode::Constant,
     value::{Closure, Function, Upvalue},
     UInt,
 };
@@ -155,7 +154,7 @@ impl Compiler {
         if self.parser_mut().match_next(Type::Equal) {
             self.expression();
         } else {
-            self.emit_opcode(OpCode::Constant(Constant::Nil));
+            self.emit_opcode(OpCode::ConstNil);
         }
 
         self.parser_mut()
@@ -472,21 +471,21 @@ impl Compiler {
 
     fn literal(&mut self) {
         match self.previous().t_type {
-            Type::False => self.emit_opcode(OpCode::Constant(Constant::Bool(false))),
-            Type::Nil => self.emit_opcode(OpCode::Constant(Constant::Nil)),
-            Type::True => self.emit_opcode(OpCode::Constant(Constant::Bool(true))),
+            Type::False => self.emit_opcode(OpCode::ConstBool(false)),
+            Type::Nil => self.emit_opcode(OpCode::ConstNil),
+            Type::True => self.emit_opcode(OpCode::ConstBool(true)),
             Type::Number => {
                 let value: f64 = interner::str(self.previous().lexeme)
                     .parse()
                     .expect("Invalid number?");
-                self.emit_opcode(OpCode::Constant(Constant::Number(value)));
+                self.emit_opcode(OpCode::ConstNumber(value));
             }
             _ => (),
         }
     }
 
     fn string(&mut self) {
-        self.emit_opcode(OpCode::Constant(Constant::String(self.previous().lexeme)))
+        self.emit_opcode(OpCode::ConstString(self.previous().lexeme))
     }
 
     fn this(&mut self) {
@@ -701,7 +700,7 @@ impl Compiler {
         if self.function_type == FunctionType::Initializer {
             self.emit_opcode(OpCode::GetLocal(0));
         } else {
-            self.emit_opcode(OpCode::Constant(Constant::Nil));
+            self.emit_opcode(OpCode::ConstNil);
         }
         self.emit_opcode(OpCode::Return);
     }

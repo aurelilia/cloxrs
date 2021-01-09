@@ -1,11 +1,14 @@
-use super::value::Value;
 use crate::{interner::StrId, value::Closure, UInt};
 use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(u8)]
 pub enum OpCode {
-    Constant(Constant),
+    ConstNil,
+    ConstBool(bool),
+    ConstNumber(f64),
+    ConstString(StrId),
+
     DefineGlobal(StrId),
 
     GetGlobal(StrId),
@@ -51,24 +54,4 @@ pub enum OpCode {
     Closure(Rc<Closure>),
     Class(StrId),
     EndClass(bool),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-#[repr(u8)]
-pub enum Constant {
-    Nil,
-    Bool(bool),
-    Number(f64),
-    String(StrId),
-}
-
-impl Constant {
-    pub fn value(&self) -> Value {
-        match self {
-            Constant::Nil => Value::Nil,
-            Constant::Bool(b) => Value::Bool(*b),
-            Constant::Number(n) => Value::Number(*n),
-            Constant::String(s) => Value::ConstString(*s),
-        }
-    }
 }

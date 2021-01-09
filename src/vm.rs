@@ -62,7 +62,10 @@ impl VM {
             let current_inst = &current_func.chunk.code[(frame.ip - 1) as usize].code;
 
             match current_inst {
-                OpCode::Constant(constant) => self.stack.push(constant.value()),
+                OpCode::ConstNil => self.stack.push(Value::Nil),
+                OpCode::ConstBool(val) => self.stack.push(Value::Bool(*val)),
+                OpCode::ConstNumber(val) => self.stack.push(Value::Number(*val)),
+                OpCode::ConstString(str) => self.stack.push(Value::ConstString(*str)),
 
                 OpCode::DefineGlobal(global) => {
                     self.globals.insert(*global, self.stack.pop());
