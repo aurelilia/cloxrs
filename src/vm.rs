@@ -1,9 +1,4 @@
-use std::{
-    cell::{Cell, RefCell},
-    fs,
-    rc::Rc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{cell::{Cell, RefCell}, fs, io, rc::Rc, time::{SystemTime, UNIX_EPOCH}};
 
 use either::Either;
 use smallvec::SmallVec;
@@ -598,14 +593,14 @@ impl VM {
             Ok(Value::Bool(res.is_ok()))
         });
 
-        /*
-        self.define_native("input", 0, |a| {
+        self.define_native("input", 0, |_| {
             let mut input = String::new();
             io::stdin()
                 .read_line(&mut input)
                 .expect("Failed to read line!");
-            Ok(Value::DynString(Rc::new(input)))
-        });*/
+            input.pop(); // Newline
+            Ok(Value::DynString(Rc::from(input)))
+        });
     }
 
     fn define_native(

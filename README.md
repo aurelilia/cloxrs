@@ -20,6 +20,7 @@ design decisions as well as a few limitations of Rust's memory model,
 if file could not be read
 - `writefile`: Takes 1 path parameter and one file content parameter, 
 returns success (bool)
+- `input`: Waits for user to input one line, returns input. Newline at the end is stripped.
 
 ### Implementation differences
 

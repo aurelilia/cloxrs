@@ -172,3 +172,8 @@ class Cruller < Doughnut {
 var cruller = Cruller();
 cruller.cook();
 cruller.finish();
+
+
+print "say something...";
+var in = input();
+print in + "? yes, i agree.";
