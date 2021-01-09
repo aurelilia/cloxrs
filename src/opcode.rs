@@ -41,6 +41,7 @@ pub enum OpCode {
     Loop(usize),
 
     Call(usize),
+    Invoke(SmolStr, usize),
 
     Return,
 

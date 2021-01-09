@@ -47,6 +47,7 @@ impl VM {
     fn run(&mut self) -> Res {
         loop {
             {
+                // TODO: Not get the frame every iteration, cache it
                 let mut frame = self.frames.last_mut().unwrap();
                 frame.ip += 1;
             }
@@ -200,6 +201,15 @@ impl VM {
                     if !self.call_value(
                         self.stack[self.stack.len() - arg_count - 1].clone(),
                         arg_count,
+                    ) {
+                        break;
+                    }
+                }
+
+                OpCode::Invoke(method, arg_count) => {
+                    if !self.invoke(
+                        method,
+                        arg_count
                     ) {
                         break;
                     }
@@ -466,6 +476,32 @@ impl VM {
     fn call(&mut self, cls: Rc<ClosureObj>, arg_count: usize) -> bool {
         self.new_callframe(cls);
         self.frames.last_mut().unwrap().slot_offset -= arg_count;
+        true
+    }
+
+    fn invoke(&mut self, name: SmolStr, arg_count: usize) -> bool {
+        let receiver_pos = self.stack.len() - arg_count - 1;
+        let inst = if let Value::Instance(inst) = &self.stack[receiver_pos] {
+            inst
+        } else {
+            self.print_error("Only instances have methods.");
+            return false;
+        };
+
+        let field = inst.borrow().fields.get(&name).cloned();
+        if let Some(field) = field {
+            self.stack[receiver_pos] = field.clone();
+            return self.call_value(field, arg_count);
+        }
+
+        let method = inst.borrow().class.borrow().methods.get(&name).cloned();
+        if let Some(method) = method {
+            self.call(method.into_closure(), arg_count);
+        } else {
+            self.print_error(&format!("Undefined method {}.", name));
+            return false;
+        }
+
         true
     }
 

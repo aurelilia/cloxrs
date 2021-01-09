@@ -378,6 +378,9 @@ impl Compiler {
         if can_assign && self.parser_mut().match_next(Type::Equal) {
             self.expression();
             self.emit_opcode(OpCode::SetProperty(name))
+        } else if self.parser_mut().match_next(Type::LeftParen) {
+            let args_count = self.argument_list();
+            self.emit_opcode(OpCode::Invoke(name, args_count));
         } else {
             self.emit_opcode(OpCode::GetProperty(name))
         }

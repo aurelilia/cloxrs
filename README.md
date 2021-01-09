@@ -6,7 +6,7 @@ It also replaces some parts of clox by leveraging Rust's features.
 
 ### Progress
 
-cloxrs is currently up to chapter 27.
+cloxrs is currently up to chapter 28.
 
 ### Notable user-facing differences to clox
 
@@ -24,6 +24,8 @@ returns success (bool)
 ### Implementation differences
 
 - Opcodes are simply an enum, which often simply contains the opcode arguments.
+- There is no constant table; args are embedded into opcodes (TODO: Maybe do make a
+table for strings, having them in the opcode is probably really inefficient)
 - Regular Rust HashMaps are used instead of a custom implementation.
 - Due to not wanting to use unsafe Rust, upvalues are implemented entirely
 different and use `Rc<Cell<...>>`. This mostly removes the need for GC, which is why cloxrs
