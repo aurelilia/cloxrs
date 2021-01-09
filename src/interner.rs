@@ -83,6 +83,13 @@ impl<V: Clone> Map<V> {
         }
     }
 
+    pub fn values(&self) -> impl Iterator<Item = &V> + '_ {
+        self.entries
+            .iter()
+            .filter_map(|e| e.as_ref())
+            .map(|e| &e.value)
+    }
+
     pub fn len(&self) -> usize {
         self.len as usize
     }

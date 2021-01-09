@@ -14,11 +14,11 @@ use super::opcode::OpCode;
 use super::value::Value;
 use crate::{
     compiler::Compiler,
-    hashmap,
+    hashmap, hashset,
     interner::{self, Map, StrId},
     value::{BoundMethod, Class, ClosureObj, Instance, NativeFun, Upval, ANY_ARITY},
     vec::SVec,
-    HashMap, MutRc, UInt,
+    HashMap, HashSet, MutRc, UInt,
 };
 
 type Res = Result<(), Failure>;
@@ -387,15 +387,15 @@ impl VM {
     }
 
     fn collect_garbage(&mut self) {
-        /*let mut keep = hashset(self.closed_upvalues.len());
+        let mut keep = hashset(self.closed_upvalues.len());
         self.mark_all(
             &mut keep,
             self.stack.iter().chain(self.globals.values()),
             true,
         );
-        self.closed_upvalues.retain(|k, _| keep.contains(k));*/
+        self.closed_upvalues.retain(|k, _| keep.contains(k));
     }
-    /* TODO: Implement map iter to fix GC
+
     fn mark_all<'m>(
         &self,
         keep: &mut HashSet<u32>,
@@ -424,7 +424,7 @@ impl VM {
             Value::BoundMethod(method) if rec => self.mark_value(keep, &method.receiver, false),
             _ => (),
         };
-    }*/
+    }
 
     fn unary_instruction(&mut self, opcode: &OpCode) -> Option<Value> {
         match opcode {

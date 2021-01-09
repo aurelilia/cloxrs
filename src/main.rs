@@ -17,7 +17,7 @@ mod value;
 mod vec;
 mod vm;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::{
     cell::RefCell,
     fs,
@@ -31,11 +31,18 @@ use vm::VM;
 type UInt = u32;
 type MutRc<T> = Rc<RefCell<T>>;
 type HashMap<K, V> = FxHashMap<K, V>;
+type HashSet<K> = FxHashSet<K>;
 
 fn hashmap<K: Eq + Hash, V>(cap: usize) -> HashMap<K, V> {
     let mut map = HashMap::default();
     map.reserve(cap);
     map
+}
+
+fn hashset<K: Eq + Hash>(cap: usize) -> HashSet<K> {
+    let mut set = HashSet::default();
+    set.reserve(cap);
+    set
 }
 
 fn main() {
