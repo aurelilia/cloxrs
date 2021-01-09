@@ -27,6 +27,12 @@ enum FunctionType {
     Script,
 }
 
+#[derive(Clone)]
+struct ClassCompile {
+    name: Token,
+    subclass: bool,
+}
+
 pub struct Compiler {
     parser: MutRc<Parser>,
 
@@ -38,7 +44,7 @@ pub struct Compiler {
     upvalues: Vec<Upvalue>,
 
     enclosing: Option<Box<Compiler>>,
-    class_stack: MutRc<Vec<Token>>
+    class_stack: MutRc<Vec<ClassCompile>>,
 }
 
 impl Compiler {
@@ -82,7 +88,28 @@ impl Compiler {
 
         self.emit_opcode(OpCode::Class(name.lexeme.clone()));
         self.define_variable(Some(name.lexeme.clone()));
-        self.class_stack.borrow_mut().push(name.clone());
+
+        let inherit = self.parser_mut().match_next(Type::Less);
+        self.class_stack.borrow_mut().push(ClassCompile {
+            name: name.clone(),
+            subclass: inherit,
+        });
+
+        if inherit {
+            self.consume(Type::Identifier, "Expected superclass name.");
+            let superclass = self.previous();
+
+            if superclass.lexeme == name.lexeme {
+                self.error("A class cannot inherit from itself.");
+            }
+            self.variable(false);
+
+            self.begin_scope();
+            self.add_local(Token::generic_ident("super"));
+            self.mark_initialized();
+
+            self.named_variable(&superclass, false);
+        }
         self.named_variable(&name, false);
 
         self.consume(Type::LeftBrace, "Expected '{' before class body.");
@@ -91,7 +118,11 @@ impl Compiler {
         }
         self.consume(Type::RightBrace, "Expected '}' after class body.");
 
-        self.emit_opcode(OpCode::EndClass);
+        self.emit_opcode(OpCode::EndClass(inherit));
+
+        if inherit {
+            self.end_scope();
+        }
         self.class_stack.borrow_mut().pop();
     }
 
@@ -145,14 +176,12 @@ impl Compiler {
             parser: Rc::clone(&tmp.parser),
             function: Self::new_function(Some(name), 0),
             function_type,
-            locals: vec![
-                Local {
-                    name: Token::generic_ident(local_name),
-                    depth: 0,
-                    initialized: true,
-                    captured: false
-                }
-            ],
+            locals: vec![Local {
+                name: Token::generic_ident(local_name),
+                depth: 0,
+                initialized: true,
+                captured: false,
+            }],
             scope_depth: 0,
             upvalues: Vec::with_capacity(5),
             class_stack: Rc::clone(&tmp.class_stack),
@@ -460,6 +489,31 @@ impl Compiler {
         self.variable(false);
     }
 
+    fn super_(&mut self) {
+        if let Some(cls) = self.class_stack.borrow().last().cloned() {
+            if !cls.subclass {
+                self.error("Cannot use 'super' in a class with no superclass.");
+                return;
+            }
+        } else {
+            self.error("Cannot use 'super' outside of class.");
+            return;
+        }
+
+        self.consume(Type::Dot, "Expected '.' after 'super'.");
+        self.consume(Type::Identifier, "Expected superclass method name.");
+        let name = self.previous();
+        self.named_variable(&Token::generic_ident("this"), false);
+        if self.parser_mut().match_next(Type::LeftParen) {
+            let arg_count = self.argument_list();
+            self.named_variable(&Token::generic_ident("super"), false);
+            self.emit_opcode(OpCode::InvokeSuper(name.lexeme, arg_count));
+        } else {
+            self.named_variable(&Token::generic_ident("super"), false);
+            self.emit_opcode(OpCode::GetSuper(name.lexeme));
+        }
+    }
+
     fn variable(&mut self, can_assign: bool) {
         self.named_variable(&self.previous(), can_assign);
     }
@@ -658,7 +712,6 @@ impl Compiler {
 
     fn end_scope(&mut self) {
         self.scope_depth -= 1;
-        dbg!(&self.locals);
 
         while !self.locals.is_empty()
             && self.locals.last().expect("Empty locals?").depth > self.scope_depth
@@ -735,7 +788,7 @@ impl Compiler {
             upvalues: Vec::with_capacity(3),
 
             enclosing: None,
-            class_stack: Rc::new(RefCell::new(Vec::with_capacity(2)))
+            class_stack: Rc::new(RefCell::new(Vec::with_capacity(2))),
         }
     }
 }
@@ -850,8 +903,8 @@ static RULES: [ParseRule; 40] = [
     ParseRule::new_infix(|compiler, _| compiler.or(), Precedence::Or),            // OR
     ParseRule::new(Precedence::None),                                             // PRINT
     ParseRule::new(Precedence::None),                                             // RETURN
-    ParseRule::new(Precedence::None),                                             // SUPER
-    ParseRule::new_both(|compiler, _| compiler.this(), None, Precedence::None), // THIS
+    ParseRule::new_both(|compiler, _| compiler.super_(), None, Precedence::None), // SUPER
+    ParseRule::new_both(|compiler, _| compiler.this(), None, Precedence::None),   // THIS
     ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None), // TRUE
     ParseRule::new(Precedence::None),                                             // VAR
     ParseRule::new(Precedence::None),                                             // WHILE

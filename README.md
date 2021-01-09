@@ -4,9 +4,8 @@ An interpreter for [Lox](http://craftinginterpreters.com). Written in Rust.
 It follows the 3rd part of the book, and is similar in structure to clox.
 It also replaces some parts of clox by leveraging Rust's features.
 
-### Progress
-
-cloxrs is currently up to chapter 28.
+It is a fully-featured Lox VM, and all features are implemented, however the code is still
+mostly unoptimized and probably slower than clox.
 
 ### Notable user-facing differences to clox
 

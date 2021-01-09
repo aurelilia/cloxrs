@@ -150,3 +150,25 @@ class Oops {
 
 var oops = Oops();
 oops.field();
+
+class Doughnut {
+  cook() {
+    print "Dunk in the fryer.";
+  }
+}
+
+class Cruller < Doughnut {
+  cook() {
+    super.cook();
+    print "Dunk more.";
+  }
+
+  finish() {
+    super.cook();
+    print "Glaze with icing";
+  }
+}
+
+var cruller = Cruller();
+cruller.cook();
+cruller.finish();

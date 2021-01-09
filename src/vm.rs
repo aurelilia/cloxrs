@@ -12,7 +12,10 @@ use super::compiler::Compiler;
 use super::disassembler;
 use super::opcode::OpCode;
 use super::value::Value;
-use crate::value::{ANY_ARITY, BoundMethod, Class, ClosureObj, Instance, NativeFun, Upval};
+use crate::{
+    value::{BoundMethod, Class, ClosureObj, Instance, NativeFun, Upval, ANY_ARITY},
+    MutRc,
+};
 use std::rc::Rc;
 
 type Res = Result<(), Failure>;
@@ -82,9 +85,9 @@ impl VM {
                     }
                 }
 
-                OpCode::GetLocal(local) => {
-                    self.stack.push(self.stack[frame.slot_offset + local].clone())
-                }
+                OpCode::GetLocal(local) => self
+                    .stack
+                    .push(self.stack[frame.slot_offset + local].clone()),
 
                 OpCode::SetLocal(local) => {
                     let offset = frame.slot_offset + local;
@@ -123,16 +126,7 @@ impl VM {
                     if let Some(value) = field {
                         self.stack.push(value);
                     } else {
-                        let method = inst.borrow().class.borrow().methods.get(&name).cloned();
-                        if let Some(method) = method {
-                            let bound = BoundMethod {
-                                receiver: Value::Instance(inst),
-                                method: Rc::clone(method.as_closure()),
-                            };
-                            self.stack.push(Value::BoundMethod(Rc::new(bound)));
-                        } else {
-                            self.stack.push(Value::Nil);
-                        }
+                        self.bind_method(&inst.borrow().class, &inst, name);
                     }
                 }
 
@@ -151,6 +145,12 @@ impl VM {
                         inst.borrow_mut().fields.insert(name, value.clone());
                     }
                     self.stack.push(value);
+                }
+
+                OpCode::GetSuper(name) => {
+                    let superclass = self.stack_pop().into_class();
+                    let inst = self.stack_pop().into_instance();
+                    self.bind_method(&superclass, &inst, name);
                 }
 
                 OpCode::Pop => {
@@ -207,10 +207,14 @@ impl VM {
                 }
 
                 OpCode::Invoke(method, arg_count) => {
-                    if !self.invoke(
-                        method,
-                        arg_count
-                    ) {
+                    if !self.invoke(method, arg_count) {
+                        break;
+                    }
+                }
+
+                OpCode::InvokeSuper(method, arg_count) => {
+                    let superclass = self.stack_pop().into_class();
+                    if !self.invoke_from_class(&superclass, &method, arg_count) {
                         break;
                     }
                 }
@@ -255,7 +259,7 @@ impl VM {
                     }))))
                 }
 
-                OpCode::EndClass => {
+                OpCode::EndClass(inherit) => {
                     let mut methods = HashMap::with_capacity(5);
 
                     let mut last = self.stack_pop();
@@ -264,7 +268,22 @@ impl VM {
                         methods.insert(name, Value::Closure(cls));
                         last = self.stack_pop();
                     }
-                    
+
+                    if inherit {
+                        if let Value::Class(cls) = self.stack_last() {
+                            let super_methods = &cls.borrow().methods;
+                            methods.reserve(super_methods.len());
+                            for method in super_methods.iter() {
+                                if !methods.contains_key(method.0) {
+                                    methods.insert(method.0.clone(), method.1.clone());
+                                }
+                            }
+                        } else {
+                            self.print_error("Superclass must be a class.");
+                            break;
+                        }
+                    }
+
                     last.as_class().borrow_mut().methods = methods;
                 }
             }
@@ -318,6 +337,19 @@ impl VM {
             .iter()
             .enumerate()
             .find(|(_, v)| v.get().left().unwrap() == idx)
+    }
+
+    fn bind_method(&mut self, class: &MutRc<Class>, inst: &MutRc<Instance>, name: SmolStr) {
+        let method = class.borrow().methods.get(&name).cloned();
+        if let Some(method) = method {
+            let bound = BoundMethod {
+                receiver: Value::Instance(Rc::clone(inst)),
+                method: Rc::clone(method.as_closure()),
+            };
+            self.stack.push(Value::BoundMethod(Rc::new(bound)));
+        } else {
+            self.stack.push(Value::Nil);
+        }
     }
 
     fn maybe_gc(&mut self) {
@@ -451,13 +483,13 @@ impl VM {
                 self.stack[receiver_pos] = Value::Instance(Rc::new(RefCell::new(inst)));
 
                 if let Some(init) = initializer {
-                    return self.call(init.into_closure(), arg_count)
+                    return self.call(init.into_closure(), arg_count);
                 } else if arg_count != 0 {
                     self.print_error(&format!(
                         "Incorrect amount of constructor arguments (wanted {}, got {})",
                         0, arg_count
                     ));
-                    return false
+                    return false;
                 }
 
                 true
@@ -494,15 +526,23 @@ impl VM {
             return self.call_value(field, arg_count);
         }
 
-        let method = inst.borrow().class.borrow().methods.get(&name).cloned();
+        let class = Rc::clone(&inst.borrow().class);
+        self.invoke_from_class(&class, &name, arg_count)
+    }
+
+    fn invoke_from_class(
+        &mut self,
+        class: &MutRc<Class>,
+        name: &SmolStr,
+        arg_count: usize,
+    ) -> bool {
+        let method = class.borrow().methods.get(name).cloned();
         if let Some(method) = method {
-            self.call(method.into_closure(), arg_count);
+            self.call(method.into_closure(), arg_count)
         } else {
             self.print_error(&format!("Undefined method {}.", name));
-            return false;
+            false
         }
-
-        true
     }
 
     fn print_error(&mut self, message: &str) {

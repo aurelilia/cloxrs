@@ -20,6 +20,7 @@ pub enum OpCode {
 
     GetProperty(SmolStr),
     SetProperty(SmolStr),
+    GetSuper(SmolStr),
 
     Pop,
     HoistUpvalue,
@@ -42,10 +43,11 @@ pub enum OpCode {
 
     Call(usize),
     Invoke(SmolStr, usize),
+    InvokeSuper(SmolStr, usize),
 
     Return,
 
     Closure(Rc<Closure>),
     Class(SmolStr),
-    EndClass,
+    EndClass(bool),
 }
