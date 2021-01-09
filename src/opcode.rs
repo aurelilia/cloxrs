@@ -63,12 +63,12 @@ pub enum Constant {
 }
 
 impl Constant {
-    pub fn value(self) -> Value {
+    pub fn value(&self) -> Value {
         match self {
             Constant::Nil => Value::Nil,
-            Constant::Bool(b) => Value::Bool(b),
-            Constant::Number(n) => Value::Number(n),
-            Constant::String(s) => Value::String(Either::Left(s)),
+            Constant::Bool(b) => Value::Bool(*b),
+            Constant::Number(n) => Value::Number(*n),
+            Constant::String(s) => Value::String(Either::Left(*s)),
         }
     }
 }

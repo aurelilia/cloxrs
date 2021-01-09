@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
-    fs,
+    fs, mem,
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -45,32 +45,38 @@ impl VM {
         self.define_natives();
         let cls = cls.to_obj();
         self.stack.push(Value::Closure(cls.clone()));
-        self.new_callframe(cls);
 
-        self.run()
+        self.run(cls)
     }
 
-    fn run(&mut self) -> Res {
+    fn run(&mut self, closure: Rc<ClosureObj>) -> Res {
+        let mut frame = CallFrame {
+            closure,
+            ip: 0,
+            slot_offset: self.stack.len() - 1,
+        };
+
         loop {
-            let mut frame = self.frames.last_mut();
             frame.ip += 1;
-            let current_inst = frame.closure.function.borrow().chunk.code[(frame.ip - 1) as usize]
-                .code
-                .clone();
+            let current_func = frame.closure.function.borrow();
+            let current_inst = &current_func.chunk.code[(frame.ip - 1) as usize].code;
 
             match current_inst {
                 OpCode::Constant(constant) => self.stack.push(constant.value()),
 
                 OpCode::DefineGlobal(global) => {
-                    self.globals.insert(global, self.stack.pop());
+                    self.globals.insert(*global, self.stack.pop());
                 }
 
                 OpCode::GetGlobal(global) => {
-                    let value = self.globals.get(global);
+                    let value = self.globals.get(*global);
                     if let Some(value) = value {
                         self.stack.push(value.clone());
                     } else {
-                        self.print_error(&format!("Undefined variable {}.", interner::str(global)));
+                        self.print_error(&format!(
+                            "Undefined variable {}.",
+                            interner::str(*global)
+                        ));
                         break;
                     }
                 }
@@ -78,10 +84,13 @@ impl VM {
                 OpCode::SetGlobal(global) => {
                     if self
                         .globals
-                        .insert(global, self.stack_last().clone())
+                        .insert(*global, self.stack_last().clone())
                         .is_none()
                     {
-                        self.print_error(&format!("Undefined variable {}.", interner::str(global)));
+                        self.print_error(&format!(
+                            "Undefined variable {}.",
+                            interner::str(*global)
+                        ));
                         break;
                     }
                 }
@@ -97,7 +106,7 @@ impl VM {
                 }
 
                 OpCode::GetUpvalue(index) => {
-                    let upval = &frame.closure.upvalues[index as usize];
+                    let upval = &frame.closure.upvalues[*index as usize];
                     let val = match upval.get() {
                         Either::Left(idx) => self.stack[idx].clone(),
                         Either::Right(idx) => self.closed_upvalues[&idx].clone(),
@@ -107,7 +116,7 @@ impl VM {
 
                 OpCode::SetUpvalue(index) => {
                     let val = self.stack.last().clone();
-                    let upval = &frame.closure.upvalues[index as usize];
+                    let upval = &frame.closure.upvalues[*index as usize];
                     match upval.get() {
                         Either::Left(idx) => self.stack[idx] = val,
                         Either::Right(idx) => {
@@ -124,11 +133,11 @@ impl VM {
                         break;
                     };
 
-                    let field = inst.borrow().fields.get(name).cloned();
+                    let field = inst.borrow().fields.get(*name).cloned();
                     if let Some(value) = field {
                         self.stack.push(value);
                     } else {
-                        self.bind_method(&inst.borrow().class, &inst, name);
+                        self.bind_method(&inst.borrow().class, &inst, *name);
                     }
                 }
 
@@ -141,14 +150,14 @@ impl VM {
                         break;
                     };
 
-                    inst.borrow_mut().fields.insert(name, value.clone());
+                    inst.borrow_mut().fields.insert(*name, value.clone());
                     self.stack.push(value);
                 }
 
                 OpCode::GetSuper(name) => {
                     let superclass = self.stack_pop().into_class();
                     let inst = self.stack_pop().into_instance();
-                    self.bind_method(&superclass, &inst, name);
+                    self.bind_method(&superclass, &inst, *name);
                 }
 
                 OpCode::Pop => {
@@ -158,7 +167,7 @@ impl VM {
                 OpCode::HoistUpvalue => self.pop_or_hoist(),
 
                 OpCode::Negate | OpCode::Not => {
-                    let result = self.unary_instruction();
+                    let result = self.unary_instruction(current_inst);
                     if let Some(result) = result {
                         self.stack.push(result)
                     } else {
@@ -174,7 +183,7 @@ impl VM {
                 | OpCode::Equal
                 | OpCode::Greater
                 | OpCode::Less => {
-                    let result = self.binary_instruction();
+                    let result = self.binary_instruction(current_inst);
                     if let Some(result) = result {
                         self.stack.push(result)
                     } else {
@@ -189,42 +198,76 @@ impl VM {
 
                 OpCode::JumpIfFalse(offset) => {
                     if self.stack_last().is_falsey() {
-                        self.frames.last_mut().ip += offset;
+                        frame.ip += offset;
                     }
                 }
 
                 OpCode::Loop(offset) => frame.ip -= offset,
 
                 OpCode::Call(arg_count) => {
-                    if !self.call_value(
+                    // todo no cloning!!
+                    let result = self.call_value(
                         self.stack[self.stack.len() - arg_count - 1].clone(),
-                        arg_count,
-                    ) {
-                        break;
+                        *arg_count,
+                    );
+
+                    match result {
+                        Some(Some(new_frame)) => {
+                            drop(current_func);
+                            let old_frame = mem::replace(&mut frame, new_frame);
+                            self.frames.push(old_frame);
+                        }
+
+                        Some(None) => (),
+
+                        None => break,
                     }
                 }
 
                 OpCode::Invoke(method, arg_count) => {
-                    if !self.invoke(method, arg_count) {
-                        break;
+                    let result = self.invoke(*method, *arg_count);
+
+                    match result {
+                        Some(Some(new_frame)) => {
+                            drop(current_func);
+                            let old_frame = mem::replace(&mut frame, new_frame);
+                            self.frames.push(old_frame);
+                        }
+
+                        Some(None) => (),
+
+                        None => break,
                     }
                 }
 
                 OpCode::InvokeSuper(method, arg_count) => {
                     let superclass = self.stack_pop().into_class();
-                    if !self.invoke_from_class(&superclass, method, arg_count) {
-                        break;
+                    let result = self.invoke_from_class(&superclass, *method, *arg_count);
+
+                    match result {
+                        Some(Some(new_frame)) => {
+                            drop(current_func);
+                            let old_frame = mem::replace(&mut frame, new_frame);
+                            self.frames.push(old_frame);
+                        }
+
+                        Some(None) => (),
+
+                        None => break,
                     }
                 }
 
                 OpCode::Return => {
                     let result = self.stack_pop();
-                    while self.stack.len() != self.frames.last().slot_offset {
+                    while self.stack.len() != frame.slot_offset {
                         self.pop_or_hoist();
                     }
 
-                    self.frames.pop();
-                    if self.frames.is_empty() {
+                    let last_frame = self.frames.try_pop();
+                    if let Some(last_frame) = last_frame {
+                        drop(current_func);
+                        frame = last_frame;
+                    } else {
                         self.collect_garbage();
                         return Ok(());
                     }
@@ -235,9 +278,9 @@ impl VM {
                 OpCode::Closure(cls) => {
                     let ups = cls.upvalues.iter().map(|up| {
                         if up.is_local {
-                            self.capture_upvalue(self.frames.last().slot_offset + up.index + 1)
+                            self.capture_upvalue(frame.slot_offset + up.index + 1)
                         } else {
-                            Rc::clone(&self.frames.last().closure.upvalues[up.index as usize])
+                            Rc::clone(&frame.closure.upvalues[up.index as usize])
                         }
                     });
                     let cls = Rc::new(ClosureObj {
@@ -250,7 +293,7 @@ impl VM {
 
                 OpCode::Class(name) => {
                     self.stack.push(Value::Class(Rc::new(RefCell::new(Class {
-                        name,
+                        name: *name,
                         methods: Map::new(),
                     }))))
                 }
@@ -265,7 +308,7 @@ impl VM {
                         last = self.stack_pop();
                     }
 
-                    if inherit {
+                    if *inherit {
                         if let Value::Class(cls) = self.stack_last() {
                             let super_methods = &cls.borrow().methods;
                             methods.add_missing(&super_methods);
@@ -283,13 +326,6 @@ impl VM {
         // All terminations of this loop are to be interpreted as an error,
         // return will return directly and prevent hitting this
         Err(Failure::RuntimeError)
-    }
-
-    fn get_current_instruction(&self) -> OpCode {
-        let frame = self.frames.last();
-        frame.closure.function.borrow().chunk.code[(frame.ip - 1) as usize]
-            .code
-            .clone()
     }
 
     fn stack_last(&self) -> &Value {
@@ -390,8 +426,7 @@ impl VM {
         };
     }*/
 
-    fn unary_instruction(&mut self) -> Option<Value> {
-        let opcode = self.get_current_instruction();
+    fn unary_instruction(&mut self, opcode: &OpCode) -> Option<Value> {
         match opcode {
             OpCode::Negate => -self.stack_pop(),
             OpCode::Not => !self.stack_pop(),
@@ -399,8 +434,7 @@ impl VM {
         }
     }
 
-    fn binary_instruction(&mut self) -> Option<Value> {
-        let opcode = self.get_current_instruction();
+    fn binary_instruction(&mut self, opcode: &OpCode) -> Option<Value> {
         let b = self.stack_pop();
         let a = self.stack_pop();
 
@@ -418,15 +452,7 @@ impl VM {
         }
     }
 
-    fn new_callframe(&mut self, closure: Rc<ClosureObj>) {
-        self.frames.push(CallFrame {
-            closure,
-            ip: 0,
-            slot_offset: self.stack.len() - 1,
-        });
-    }
-
-    fn call_value(&mut self, callee: Value, arg_count: UInt) -> bool {
+    fn call_value(&mut self, callee: Value, arg_count: UInt) -> Option<Option<CallFrame>> {
         let arity = callee.arity();
         if let Some(arity) = arity {
             if arg_count != arity && arity != ANY_ARITY {
@@ -434,11 +460,11 @@ impl VM {
                     "Incorrect amount of function arguments (wanted {}, got {})",
                     arity, arg_count
                 ));
-                return false;
+                return None;
             }
         } else {
             self.print_error("Can only call functions and classes.");
-            return false;
+            return None;
         }
 
         match callee {
@@ -455,12 +481,12 @@ impl VM {
                 match result {
                     Ok(value) => {
                         self.stack.push(value);
-                        true
+                        Some(None)
                     }
 
                     Err(msg) => {
                         self.print_error(msg);
-                        false
+                        None
                     }
                 }
             }
@@ -481,16 +507,16 @@ impl VM {
                 self.stack[receiver_pos] = Value::Instance(Rc::new(RefCell::new(inst)));
 
                 if let Some(init) = initializer {
-                    return self.call(init.into_closure(), arg_count);
+                    self.call(init.into_closure(), arg_count)
                 } else if arg_count != 0 {
                     self.print_error(&format!(
                         "Incorrect amount of constructor arguments (wanted {}, got {})",
                         0, arg_count
                     ));
-                    return false;
+                    None
+                } else {
+                    Some(None)
                 }
-
-                true
             }
 
             Value::BoundMethod(method) => {
@@ -503,19 +529,22 @@ impl VM {
         }
     }
 
-    fn call(&mut self, cls: Rc<ClosureObj>, arg_count: UInt) -> bool {
-        self.new_callframe(cls);
-        self.frames.last_mut().slot_offset -= arg_count;
-        true
+    #[allow(clippy::unnecessary_wraps)]
+    fn call(&mut self, closure: Rc<ClosureObj>, arg_count: UInt) -> Option<Option<CallFrame>> {
+        Some(Some(CallFrame {
+            closure,
+            ip: 0,
+            slot_offset: self.stack.len() - arg_count - 1,
+        }))
     }
 
-    fn invoke(&mut self, name: StrId, arg_count: UInt) -> bool {
+    fn invoke(&mut self, name: StrId, arg_count: UInt) -> Option<Option<CallFrame>> {
         let receiver_pos = self.stack.len() - arg_count - 1;
         let inst = if let Value::Instance(inst) = &self.stack[receiver_pos] {
             inst
         } else {
             self.print_error("Only instances have methods.");
-            return false;
+            return None;
         };
 
         let field = inst.borrow().fields.get(name).cloned();
@@ -528,13 +557,18 @@ impl VM {
         self.invoke_from_class(&class, name, arg_count)
     }
 
-    fn invoke_from_class(&mut self, class: &MutRc<Class>, name: StrId, arg_count: UInt) -> bool {
+    fn invoke_from_class(
+        &mut self,
+        class: &MutRc<Class>,
+        name: StrId,
+        arg_count: UInt,
+    ) -> Option<Option<CallFrame>> {
         let method = class.borrow().methods.get(name).cloned();
         if let Some(method) = method {
             self.call(method.into_closure(), arg_count)
         } else {
             self.print_error(&format!("Undefined method {}.", interner::str(name)));
-            false
+            None
         }
     }
 

@@ -17,12 +17,12 @@ impl<V: Array> SVec<V> {
         }
     }
 
-    pub fn last(&self) -> &V::Item {
-        self.0.last().unwrap()
+    pub fn try_pop(&mut self) -> Option<V::Item> {
+        self.0.pop()
     }
 
-    pub fn last_mut(&mut self) -> &mut V::Item {
-        self.0.last_mut().unwrap()
+    pub fn last(&self) -> &V::Item {
+        self.0.last().unwrap()
     }
 
     pub fn len(&self) -> u32 {
