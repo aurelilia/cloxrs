@@ -1,11 +1,12 @@
 use std::{
     cell::{Cell, RefCell},
-    collections::{HashMap, HashSet},
     fs,
+    rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
 use either::Either;
+use smallvec::SmallVec;
 use smol_str::SmolStr;
 
 use super::compiler::Compiler;
@@ -13,21 +14,22 @@ use super::disassembler;
 use super::opcode::OpCode;
 use super::value::Value;
 use crate::{
+    hashmap, hashset,
     value::{BoundMethod, Class, ClosureObj, Instance, NativeFun, Upval, ANY_ARITY},
-    MutRc,
+    vec::SVec,
+    HashMap, HashSet, MutRc, UInt,
 };
-use std::rc::Rc;
 
 type Res = Result<(), Failure>;
 
-#[derive(Debug)]
 pub struct VM {
-    frames: Vec<CallFrame>,
-    stack: Vec<Value>,
+    frames: SVec<[CallFrame; 64]>,
+    stack: SVec<[Value; 256]>,
     globals: HashMap<SmolStr, Value>,
-    open_upvalues: Vec<Upval>,
-    closed_upvalues: HashMap<u16, Value>,
-    upvalue_count: u16,
+
+    open_upvalues: SVec<[Upval; 16]>,
+    closed_upvalues: HashMap<u32, Value>,
+    upvalue_count: u32,
     gc_thresh: usize,
 }
 
@@ -49,19 +51,17 @@ impl VM {
 
     fn run(&mut self) -> Res {
         loop {
-            {
-                // TODO: Not get the frame every iteration, cache it
-                let mut frame = self.frames.last_mut().unwrap();
-                frame.ip += 1;
-            }
-            let current_inst = self.get_current_instruction();
-            let mut frame = self.frames.last_mut().unwrap();
+            let mut frame = self.frames.last_mut();
+            frame.ip += 1;
+            let current_inst = frame.closure.function.borrow().chunk.code[(frame.ip - 1) as usize]
+                .code
+                .clone();
 
             match current_inst {
-                OpCode::Constant(constant) => self.stack.push(constant.clone()),
+                OpCode::Constant(constant) => self.stack.push(constant.value()),
 
                 OpCode::DefineGlobal(global) => {
-                    self.globals.insert(global, self.stack.pop().unwrap());
+                    self.globals.insert(global, self.stack.pop());
                 }
 
                 OpCode::GetGlobal(global) => {
@@ -85,9 +85,10 @@ impl VM {
                     }
                 }
 
-                OpCode::GetLocal(local) => self
-                    .stack
-                    .push(self.stack[frame.slot_offset + local].clone()),
+                OpCode::GetLocal(local) => {
+                    let loc = self.stack[frame.slot_offset + local].clone();
+                    self.stack.push(loc);
+                }
 
                 OpCode::SetLocal(local) => {
                     let offset = frame.slot_offset + local;
@@ -95,19 +96,19 @@ impl VM {
                 }
 
                 OpCode::GetUpvalue(index) => {
-                    let upval = &frame.closure.upvalues[index];
+                    let upval = &frame.closure.upvalues[index as usize];
                     let val = match upval.get() {
-                        Either::Left(idx) => self.stack[idx as usize].clone(),
+                        Either::Left(idx) => self.stack[idx].clone(),
                         Either::Right(idx) => self.closed_upvalues[&idx].clone(),
                     };
                     self.stack.push(val)
                 }
 
                 OpCode::SetUpvalue(index) => {
-                    let val = self.stack.last().unwrap().clone();
-                    let upval = &frame.closure.upvalues[index];
+                    let val = self.stack.last().clone();
+                    let upval = &frame.closure.upvalues[index as usize];
                     match upval.get() {
-                        Either::Left(idx) => self.stack[idx as usize] = val,
+                        Either::Left(idx) => self.stack[idx] = val,
                         Either::Right(idx) => {
                             self.closed_upvalues.insert(idx, val);
                         }
@@ -191,7 +192,7 @@ impl VM {
 
                 OpCode::JumpIfFalse(offset) => {
                     if self.stack_last().is_falsey() {
-                        self.frames.last_mut().unwrap().ip += offset;
+                        self.frames.last_mut().ip += offset;
                     }
                 }
 
@@ -221,11 +222,11 @@ impl VM {
 
                 OpCode::Return => {
                     let result = self.stack_pop();
-                    while self.stack.len() != self.frames.last().unwrap().slot_offset {
+                    while self.stack.len() != self.frames.last().slot_offset {
                         self.pop_or_hoist();
                     }
 
-                    self.frames.pop().unwrap();
+                    self.frames.pop();
                     if self.frames.is_empty() {
                         self.collect_garbage();
                         return Ok(());
@@ -237,11 +238,9 @@ impl VM {
                 OpCode::Closure(cls) => {
                     let ups = cls.upvalues.iter().map(|up| {
                         if up.is_local {
-                            self.capture_upvalue(
-                                (self.frames.last().unwrap().slot_offset + up.index + 1) as u16,
-                            )
+                            self.capture_upvalue(self.frames.last().slot_offset + up.index + 1)
                         } else {
-                            Rc::clone(&self.frames.last().unwrap().closure.upvalues[up.index])
+                            Rc::clone(&self.frames.last().closure.upvalues[up.index as usize])
                         }
                     });
                     let cls = Rc::new(ClosureObj {
@@ -255,12 +254,12 @@ impl VM {
                 OpCode::Class(name) => {
                     self.stack.push(Value::Class(Rc::new(RefCell::new(Class {
                         name,
-                        methods: HashMap::new(),
+                        methods: HashMap::default(),
                     }))))
                 }
 
                 OpCode::EndClass(inherit) => {
-                    let mut methods = HashMap::with_capacity(5);
+                    let mut methods = hashmap(5);
 
                     let mut last = self.stack_pop();
                     while let Value::Closure(cls) = last {
@@ -295,25 +294,25 @@ impl VM {
     }
 
     fn get_current_instruction(&self) -> OpCode {
-        let frame = self.frames.last().unwrap();
-        frame.closure.function.borrow().chunk.code[frame.ip - 1]
+        let frame = self.frames.last();
+        frame.closure.function.borrow().chunk.code[(frame.ip - 1) as usize]
             .code
             .clone()
     }
 
     fn stack_last(&self) -> &Value {
-        self.stack.last().expect("Stack was empty?")
+        self.stack.last()
     }
 
     fn stack_pop(&mut self) -> Value {
-        self.stack.pop().expect("Stack was empty?")
+        self.stack.pop()
     }
 
     fn pop_or_hoist(&mut self) {
         let val = self.stack_pop();
-        let upval = self.find_upvalue(self.stack.len() as u16);
+        let upval = self.find_upvalue(self.stack.len());
         if let Some((idx, upval)) = upval {
-            upval.set(Either::Right(self.closed_upvalues.len() as u16));
+            upval.set(Either::Right(self.closed_upvalues.len() as u32));
 
             self.closed_upvalues.insert(self.upvalue_count, val);
             self.upvalue_count += 1;
@@ -321,7 +320,7 @@ impl VM {
         }
     }
 
-    fn capture_upvalue(&mut self, idx: u16) -> Upval {
+    fn capture_upvalue(&mut self, idx: u32) -> Upval {
         let existing = self.find_upvalue(idx);
         if let Some(exisiting) = existing {
             Rc::clone(exisiting.1)
@@ -332,7 +331,7 @@ impl VM {
         }
     }
 
-    fn find_upvalue(&self, idx: u16) -> Option<(usize, &Upval)> {
+    fn find_upvalue(&self, idx: u32) -> Option<(usize, &Upval)> {
         self.open_upvalues
             .iter()
             .enumerate()
@@ -360,7 +359,7 @@ impl VM {
     }
 
     fn collect_garbage(&mut self) {
-        let mut keep = HashSet::with_capacity(self.closed_upvalues.len());
+        let mut keep = hashset(self.closed_upvalues.len());
         self.mark_all(
             &mut keep,
             self.stack.iter().chain(self.globals.values()),
@@ -371,7 +370,7 @@ impl VM {
 
     fn mark_all<'m>(
         &self,
-        keep: &mut HashSet<u16>,
+        keep: &mut HashSet<u32>,
         iter: impl Iterator<Item = &'m Value>,
         rec: bool,
     ) {
@@ -380,8 +379,8 @@ impl VM {
         }
     }
 
-    fn mark_value<'m>(&self, keep: &mut HashSet<u16>, val: &'m Value, rec: bool) {
-        let mark = |keep: &mut HashSet<u16>, cls: &ClosureObj| {
+    fn mark_value<'m>(&self, keep: &mut HashSet<u32>, val: &'m Value, rec: bool) {
+        let mark = |keep: &mut HashSet<u32>, cls: &ClosureObj| {
             for upval in cls.upvalues.iter().filter_map(|v| v.get().right()) {
                 keep.insert(upval);
             }
@@ -435,7 +434,7 @@ impl VM {
         });
     }
 
-    fn call_value(&mut self, callee: Value, arg_count: usize) -> bool {
+    fn call_value(&mut self, callee: Value, arg_count: UInt) -> bool {
         let arity = callee.arity();
         if let Some(arity) = arity {
             if arg_count != arity && arity != ANY_ARITY {
@@ -454,8 +453,11 @@ impl VM {
             Value::Closure(cls) => self.call(cls, arg_count),
 
             Value::NativeFun(func) => {
-                // TODO: Maybe use smallvec to avoid an allocation every call?
-                let args = self.stack.split_off(self.stack.len() - arg_count);
+                let mut args: SmallVec<[Value; 3]> = SmallVec::new();
+                for _ in 0..arg_count {
+                    args.push(self.stack.pop())
+                }
+
                 self.stack_pop(); // Pop the function still on the stack
                 let result = (func.borrow().func)(&args);
                 match result {
@@ -476,7 +478,7 @@ impl VM {
 
                 let inst = Instance {
                     class,
-                    fields: HashMap::with_capacity(8),
+                    fields: hashmap(8),
                 };
 
                 let receiver_pos = self.stack.len() - arg_count - 1;
@@ -505,13 +507,13 @@ impl VM {
         }
     }
 
-    fn call(&mut self, cls: Rc<ClosureObj>, arg_count: usize) -> bool {
+    fn call(&mut self, cls: Rc<ClosureObj>, arg_count: UInt) -> bool {
         self.new_callframe(cls);
-        self.frames.last_mut().unwrap().slot_offset -= arg_count;
+        self.frames.last_mut().slot_offset -= arg_count;
         true
     }
 
-    fn invoke(&mut self, name: SmolStr, arg_count: usize) -> bool {
+    fn invoke(&mut self, name: SmolStr, arg_count: UInt) -> bool {
         let receiver_pos = self.stack.len() - arg_count - 1;
         let inst = if let Value::Instance(inst) = &self.stack[receiver_pos] {
             inst
@@ -530,12 +532,7 @@ impl VM {
         self.invoke_from_class(&class, &name, arg_count)
     }
 
-    fn invoke_from_class(
-        &mut self,
-        class: &MutRc<Class>,
-        name: &SmolStr,
-        arg_count: usize,
-    ) -> bool {
+    fn invoke_from_class(&mut self, class: &MutRc<Class>, name: &SmolStr, arg_count: UInt) -> bool {
         let method = class.borrow().methods.get(name).cloned();
         if let Some(method) = method {
             self.call(method.into_closure(), arg_count)
@@ -546,16 +543,16 @@ impl VM {
     }
 
     fn print_error(&mut self, message: &str) {
-        let frame = self.frames.last().unwrap();
+        let frame = self.frames.last();
         println!(
             "[Line {}] Runtime error: {}",
-            frame.closure.function.borrow().chunk.code[frame.ip - 1].line,
+            frame.closure.function.borrow().chunk.code[(frame.ip - 1) as usize].line,
             message
         );
         println!("Stack trace:");
         for frame in self.frames.iter().rev() {
             let func = frame.closure.function.borrow();
-            let line = func.chunk.code[frame.ip - 1].line;
+            let line = func.chunk.code[(frame.ip - 1) as usize].line;
             println!("[Line {}] in {}", line, func)
         }
     }
@@ -563,8 +560,8 @@ impl VM {
     fn define_natives(&mut self) {
         self.define_native("clock", 0, |_| {
             let time = SystemTime::now().duration_since(UNIX_EPOCH);
-            let time = time.expect("Are we not in 1970 yet?");
-            Ok(Value::Number(time.as_secs() as f64))
+            let time = time.unwrap();
+            Ok(Value::Number(time.as_secs_f64()))
         });
 
         self.define_native("readfile", 1, |a| {
@@ -580,12 +577,12 @@ impl VM {
         });
 
         self.define_native("writefile", 2, |a| {
-            let name = match &a[0] {
+            let name = match &a[1] {
                 Value::String(name) => name,
                 _ => return Err("writefile: First argument must be file name as string"),
             };
 
-            let res = fs::write(name.as_str(), a[1].to_string());
+            let res = fs::write(name.as_str(), a[0].to_string());
             Ok(Value::Bool(res.is_ok()))
         });
     }
@@ -593,7 +590,7 @@ impl VM {
     fn define_native(
         &mut self,
         name: &str,
-        arity: usize,
+        arity: UInt,
         func: fn(&[Value]) -> Result<Value, &str>,
     ) {
         let name = SmolStr::new_inline(name);
@@ -605,11 +602,11 @@ impl VM {
 
     pub fn new() -> VM {
         VM {
-            frames: vec![],
-            stack: Vec::with_capacity(256),
-            globals: HashMap::with_capacity(16),
-            open_upvalues: Vec::with_capacity(5),
-            closed_upvalues: HashMap::with_capacity(5),
+            frames: SVec::new(),
+            stack: SVec::new(),
+            globals: hashmap(16),
+            open_upvalues: SVec::new(),
+            closed_upvalues: hashmap(5),
             upvalue_count: 0,
             gc_thresh: 5,
         }
@@ -624,6 +621,6 @@ pub enum Failure {
 #[derive(Debug)]
 pub struct CallFrame {
     closure: Rc<ClosureObj>,
-    ip: usize,
-    slot_offset: usize,
+    ip: UInt,
+    slot_offset: UInt,
 }

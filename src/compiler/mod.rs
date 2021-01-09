@@ -3,14 +3,18 @@ mod scanner;
 mod token;
 
 use plain_enum::TPlainEnum;
+use smallvec::SmallVec;
 use smol_str::SmolStr;
 
 use super::chunk::{Chunk, OpCodeLine};
 use super::opcode::OpCode;
-use super::value::Value;
-use crate::value::{Closure, Function, Upvalue};
 use crate::MutRc;
 use crate::{compiler::parser::Parser, disassembler::disassemble_chunk};
+use crate::{
+    opcode::Constant,
+    value::{Closure, Function, Upvalue},
+    UInt,
+};
 use std::mem;
 use std::rc::Rc;
 use std::{
@@ -41,7 +45,7 @@ pub struct Compiler {
 
     locals: Vec<Local>,
     scope_depth: usize,
-    upvalues: Vec<Upvalue>,
+    upvalues: SmallVec<[Upvalue; 3]>,
 
     enclosing: Option<Box<Compiler>>,
     class_stack: MutRc<Vec<ClassCompile>>,
@@ -61,7 +65,7 @@ impl Compiler {
         } else {
             Some(Rc::new(Closure {
                 function,
-                upvalues: vec![],
+                upvalues: SmallVec::new(),
             }))
         }
     }
@@ -149,7 +153,7 @@ impl Compiler {
         if self.parser_mut().match_next(Type::Equal) {
             self.expression();
         } else {
-            self.emit_opcode(OpCode::Constant(Value::Nil));
+            self.emit_opcode(OpCode::Constant(Constant::Nil));
         }
 
         self.parser_mut()
@@ -183,7 +187,7 @@ impl Compiler {
                 captured: false,
             }],
             scope_depth: 0,
-            upvalues: Vec::with_capacity(5),
+            upvalues: SmallVec::new(),
             class_stack: Rc::clone(&tmp.class_stack),
             enclosing: Some(Box::new(tmp)),
         };
@@ -466,19 +470,19 @@ impl Compiler {
 
     fn literal(&mut self) {
         match self.previous().t_type {
-            Type::False => self.emit_opcode(OpCode::Constant(Value::Bool(false))),
-            Type::Nil => self.emit_opcode(OpCode::Constant(Value::Nil)),
-            Type::True => self.emit_opcode(OpCode::Constant(Value::Bool(true))),
+            Type::False => self.emit_opcode(OpCode::Constant(Constant::Bool(false))),
+            Type::Nil => self.emit_opcode(OpCode::Constant(Constant::Nil)),
+            Type::True => self.emit_opcode(OpCode::Constant(Constant::Bool(true))),
             Type::Number => {
                 let value: f64 = self.previous().lexeme.parse().expect("Invalid number?");
-                self.emit_opcode(OpCode::Constant(Value::Number(value)));
+                self.emit_opcode(OpCode::Constant(Constant::Number(value)));
             }
             _ => (),
         }
     }
 
     fn string(&mut self) {
-        self.emit_opcode(OpCode::Constant(Value::String(self.previous().lexeme)))
+        self.emit_opcode(OpCode::Constant(Constant::String(self.previous().lexeme)))
     }
 
     fn this(&mut self) {
@@ -541,7 +545,7 @@ impl Compiler {
         }
     }
 
-    fn resolve_local(&mut self, name: &Token, capture: bool) -> Option<usize> {
+    fn resolve_local(&mut self, name: &Token, capture: bool) -> Option<UInt> {
         for (index, local) in self.locals.iter_mut().enumerate().rev() {
             if name.lexeme == local.name.lexeme {
                 if !local.initialized {
@@ -550,13 +554,13 @@ impl Compiler {
                         .error("Cannot read variable in its own initializer.");
                 }
                 local.captured = local.captured || capture;
-                return Some(index);
+                return Some(index as UInt);
             }
         }
         None
     }
 
-    fn resolve_upvalue(&mut self, name: &Token) -> Option<usize> {
+    fn resolve_upvalue(&mut self, name: &Token) -> Option<UInt> {
         if let Some(local) = self
             .enclosing
             .as_mut()
@@ -576,10 +580,10 @@ impl Compiler {
         }
     }
 
-    fn add_upvalue(&mut self, index: usize, is_local: bool) -> usize {
+    fn add_upvalue(&mut self, index: UInt, is_local: bool) -> UInt {
         for (i, value) in self.upvalues.iter().enumerate() {
             if value.index == index && value.is_local == is_local {
-                return i;
+                return i as UInt;
             }
         }
 
@@ -625,7 +629,7 @@ impl Compiler {
         }
     }
 
-    fn argument_list(&mut self) -> usize {
+    fn argument_list(&mut self) -> UInt {
         let mut arg_count = 0;
         if !self.parser().check(Type::RightParen) {
             loop {
@@ -678,22 +682,22 @@ impl Compiler {
         let jump = self.current_chunk().code.len() - offset - 1;
 
         self.current_chunk_mut().code[offset].code = match self.current_chunk().code[offset].code {
-            OpCode::Jump(_) => OpCode::Jump(jump),
-            OpCode::JumpIfFalse(_) => OpCode::JumpIfFalse(jump),
+            OpCode::Jump(_) => OpCode::Jump(jump as UInt),
+            OpCode::JumpIfFalse(_) => OpCode::JumpIfFalse(jump as UInt),
             _ => panic!("Jump was tried to be patched, opcode was not a jump!"),
         }
     }
 
     fn emit_loop(&mut self, start: usize) {
         let jump = self.current_chunk().code.len() - start + 1;
-        self.emit_opcode(OpCode::Loop(jump));
+        self.emit_opcode(OpCode::Loop(jump as UInt));
     }
 
     fn emit_return(&mut self) {
         if self.function_type == FunctionType::Initializer {
             self.emit_opcode(OpCode::GetLocal(0));
         } else {
-            self.emit_opcode(OpCode::Constant(Value::Nil));
+            self.emit_opcode(OpCode::Constant(Constant::Nil));
         }
         self.emit_opcode(OpCode::Return);
     }
@@ -746,7 +750,7 @@ impl Compiler {
         &mut self.function.chunk
     }
 
-    fn new_function(name: Option<SmolStr>, arity: usize) -> Function {
+    fn new_function(name: Option<SmolStr>, arity: UInt) -> Function {
         Function {
             name,
             arity,
@@ -785,7 +789,7 @@ impl Compiler {
                 captured: false,
             }],
             scope_depth: 0,
-            upvalues: Vec::with_capacity(3),
+            upvalues: SmallVec::new(),
 
             enclosing: None,
             class_stack: Rc::new(RefCell::new(Vec::with_capacity(2))),

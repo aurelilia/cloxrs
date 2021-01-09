@@ -1,7 +1,6 @@
-use super::opcode::OpCode;
-use super::value::Value;
+use smallvec::SmallVec;
 
-const VECTOR_PREALLOC: usize = 8;
+use super::opcode::OpCode;
 
 #[derive(Debug, PartialEq)]
 pub struct OpCodeLine {
@@ -11,15 +10,13 @@ pub struct OpCodeLine {
 
 #[derive(Debug, PartialEq)]
 pub struct Chunk {
-    pub code: Vec<OpCodeLine>,
-    pub constants: Vec<Value>,
+    pub code: SmallVec<[OpCodeLine; 16]>,
 }
 
 impl Chunk {
     pub fn new() -> Chunk {
         Chunk {
-            code: Vec::with_capacity(VECTOR_PREALLOC),
-            constants: Vec::with_capacity(VECTOR_PREALLOC),
+            code: SmallVec::new(),
         }
     }
 }

@@ -25,7 +25,7 @@ returns success (bool)
 - Opcodes are simply an enum, which often simply contains the opcode arguments.
 - There is no constant table; args are embedded into opcodes (TODO: Maybe do make a
 table for strings, having them in the opcode is probably really inefficient)
-- Regular Rust HashMaps are used instead of a custom implementation.
+- rustc HashMaps are used instead of a custom implementation.
 - Due to not wanting to use unsafe Rust, upvalues are implemented entirely
 different and use `Rc<Cell<...>>`. This mostly removes the need for GC, which is why cloxrs
 GC only has to infreqently collect upvalues.

@@ -1,14 +1,13 @@
 use either::Either;
+use smallvec::SmallVec;
 use smol_str::SmolStr;
-use std::{cell::Cell, mem::discriminant};
-use std::{collections::HashMap, ops::*};
-use std::{fmt, rc::Rc};
+use std::{cell::Cell, fmt, mem::discriminant, ops::*, rc::Rc};
 
-use crate::chunk::Chunk;
 use crate::MutRc;
+use crate::{chunk::Chunk, HashMap, UInt};
 
 // left: open, right: closed
-pub type Upval = Rc<Cell<Either<u16, u16>>>;
+pub type Upval = Rc<Cell<Either<u32, u32>>>;
 
 #[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA, EnumIntoGetters)]
 pub enum Value {
@@ -33,9 +32,9 @@ fn print_fn_name(name: &Option<SmolStr>, f: &mut fmt::Formatter) -> fmt::Result 
 #[derive(PartialEq)]
 pub struct Function {
     pub name: Option<SmolStr>,
-    pub arity: usize,
+    pub arity: UInt,
     pub chunk: Chunk,
-    pub upvalue_count: usize,
+    pub upvalue_count: UInt,
 }
 
 impl fmt::Display for Function {
@@ -53,14 +52,14 @@ impl fmt::Debug for Function {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Closure {
     pub function: MutRc<Function>,
-    pub upvalues: Vec<Upvalue>,
+    pub upvalues: SmallVec<[Upvalue; 3]>,
 }
 
 impl Closure {
     pub fn to_obj(&self) -> Rc<ClosureObj> {
         Rc::new(ClosureObj {
             function: Rc::clone(&self.function),
-            upvalues: Vec::with_capacity(self.upvalues.len()),
+            upvalues: SmallVec::new(),
         })
     }
 }
@@ -68,16 +67,16 @@ impl Closure {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ClosureObj {
     pub function: MutRc<Function>,
-    pub upvalues: Vec<Upval>,
+    pub upvalues: SmallVec<[Upval; 3]>,
 }
 #[derive(Debug, Clone, PartialEq)]
 pub struct Upvalue {
-    pub index: usize,
+    pub index: UInt,
     pub is_local: bool,
 }
 pub struct NativeFun {
     pub name: SmolStr,
-    pub arity: usize,
+    pub arity: UInt,
     pub func: fn(&[Value]) -> Result<Value, &str>,
 }
 
@@ -117,7 +116,7 @@ pub struct BoundMethod {
     pub method: Rc<ClosureObj>,
 }
 
-pub const ANY_ARITY: usize = 34875874;
+pub const ANY_ARITY: UInt = 34875874;
 
 impl Value {
     pub fn is_falsey(&self) -> bool {
@@ -132,7 +131,7 @@ impl Value {
         discriminant(self) == discriminant(other)
     }
 
-    pub fn arity(&self) -> Option<usize> {
+    pub fn arity(&self) -> Option<UInt> {
         match self {
             Value::Closure(c) => Some(c.function.borrow().arity),
             Value::NativeFun(f) => Some(f.borrow().arity),
