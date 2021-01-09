@@ -597,7 +597,7 @@ impl VM {
         self.define_native("readfile", 1, |a| {
             let file = fs::read_to_string(a[0].to_string());
             Ok(file
-                .map(|t| Value::String(Either::Right(Rc::from(t))))
+                .map(|t| Value::DynString(Rc::from(t)))
                 .unwrap_or(Value::Nil))
         });
 

@@ -11,16 +11,14 @@ use crate::{
 // left: open, right: closed
 pub type Upval = Rc<Cell<Either<u32, u32>>>;
 
-// String literals are StrId, dynamically created
-// strings are Rc<str>
-pub type StringVal = Either<StrId, Rc<str>>;
-
 #[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA, EnumIntoGetters)]
+#[repr(u8)]
 pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
-    String(StringVal),
+    ConstString(StrId),
+    DynString(Rc<str>),
     Closure(Rc<ClosureObj>),
     NativeFun(MutRc<NativeFun>),
     Class(MutRc<Class>),
@@ -168,8 +166,8 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Number(val) => write!(f, "{}", val),
-            Value::String(Either::Left(val)) => write!(f, "{}", interner::str(*val)),
-            Value::String(Either::Right(val)) => write!(f, "{}", val),
+            Value::ConstString(val) => write!(f, "{}", interner::str(*val)),
+            Value::DynString(val) => write!(f, "{}", val),
             Value::Bool(val) => write!(f, "{}", val),
             Value::Nil => write!(f, "nil"),
             Value::Closure(func) => write!(f, "{}", func.function.borrow()),
@@ -196,9 +194,9 @@ impl Add for Value {
         if self.is_number() && other.is_number() {
             Some(Value::Number(self.as_number() + other.as_number()))
         } else {
-            Some(Value::String(Either::Right(Rc::from(
+            Some(Value::DynString(Rc::from(
                 (self.to_string() + &other.to_string()).as_str(),
-            ))))
+            )))
         }
     }
 }

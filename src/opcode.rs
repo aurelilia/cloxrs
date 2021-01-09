@@ -1,6 +1,5 @@
 use super::value::Value;
 use crate::{interner::StrId, value::Closure, UInt};
-use either::Either;
 use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -55,6 +54,7 @@ pub enum OpCode {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+#[repr(u8)]
 pub enum Constant {
     Nil,
     Bool(bool),
@@ -68,7 +68,7 @@ impl Constant {
             Constant::Nil => Value::Nil,
             Constant::Bool(b) => Value::Bool(*b),
             Constant::Number(n) => Value::Number(*n),
-            Constant::String(s) => Value::String(Either::Left(*s)),
+            Constant::String(s) => Value::ConstString(*s),
         }
     }
 }
