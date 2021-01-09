@@ -3,12 +3,14 @@ use smol_str::SmolStr;
 use super::chunk::{Chunk, OpCodeLine};
 
 pub fn disassemble_chunk(chunk: &Chunk, name: &Option<SmolStr>) {
-    println!(
-        "== {} ==",
-        name.as_ref().map(SmolStr::as_str).unwrap_or("SCRIPT")
-    );
-    for (index, instruction) in chunk.code.iter().enumerate() {
-        disassemble_instruction(index, instruction);
+    if cfg!(debug_assertions) {
+        println!(
+            "== {} ==",
+            name.as_ref().map(SmolStr::as_str).unwrap_or("SCRIPT")
+        );
+        for (index, instruction) in chunk.code.iter().enumerate() {
+            disassemble_instruction(index, instruction);
+        }
     }
 }
 
