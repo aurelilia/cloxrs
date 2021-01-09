@@ -10,7 +10,7 @@ use crate::MutRc;
 // left: open, right: closed
 pub type Upval = Rc<Cell<Either<u16, u16>>>;
 
-#[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA)]
+#[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA, EnumIntoGetters)]
 pub enum Value {
     Bool(bool),
     Nil,
@@ -117,6 +117,8 @@ pub struct BoundMethod {
     pub method: Rc<ClosureObj>,
 }
 
+pub const ANY_ARITY: usize = 34875874;
+
 impl Value {
     pub fn is_falsey(&self) -> bool {
         match self {
@@ -134,7 +136,7 @@ impl Value {
         match self {
             Value::Closure(c) => Some(c.function.borrow().arity),
             Value::NativeFun(f) => Some(f.borrow().arity),
-            Value::Class(_) => Some(0),
+            Value::Class(_) => Some(ANY_ARITY),
             Value::BoundMethod(method) => Some(method.method.function.borrow().arity),
             _ => None,
         }

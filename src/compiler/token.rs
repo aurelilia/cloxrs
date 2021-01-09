@@ -15,6 +15,14 @@ impl Token {
             line: 0,
         }
     }
+
+    pub fn generic_ident(text: &str) -> Token {
+        Token {
+            t_type: Type::Identifier,
+            lexeme: SmolStr::new_inline(text),
+            line: 0,
+        }
+    }
 }
 
 plain_enum_mod! {this, Type {

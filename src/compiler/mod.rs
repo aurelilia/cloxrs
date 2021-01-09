@@ -22,6 +22,8 @@ use token::*;
 #[derive(Debug, PartialEq)]
 enum FunctionType {
     Function,
+    Method,
+    Initializer,
     Script,
 }
 
@@ -36,6 +38,7 @@ pub struct Compiler {
     upvalues: Vec<Upvalue>,
 
     enclosing: Option<Box<Compiler>>,
+    class_stack: MutRc<Vec<Token>>
 }
 
 impl Compiler {
@@ -79,6 +82,7 @@ impl Compiler {
 
         self.emit_opcode(OpCode::Class(name.lexeme.clone()));
         self.define_variable(Some(name.lexeme.clone()));
+        self.class_stack.borrow_mut().push(name.clone());
         self.named_variable(&name, false);
 
         self.consume(Type::LeftBrace, "Expected '{' before class body.");
@@ -88,11 +92,17 @@ impl Compiler {
         self.consume(Type::RightBrace, "Expected '}' after class body.");
 
         self.emit_opcode(OpCode::EndClass);
+        self.class_stack.borrow_mut().pop();
     }
 
     fn method(&mut self) {
         self.consume(Type::Identifier, "Expected method name.");
-        self.function(FunctionType::Function);
+        let fn_ty = if self.parser().previous.lexeme == "init" {
+            FunctionType::Initializer
+        } else {
+            FunctionType::Method
+        };
+        self.function(fn_ty);
     }
 
     fn fun_declaration(&mut self) {
@@ -125,13 +135,27 @@ impl Compiler {
         let tmp: Compiler = mem::replace(self, unsafe { MaybeUninit::uninit().assume_init() });
 
         let name = tmp.parser_mut().previous.lexeme.clone();
+
+        let local_name = if function_type != FunctionType::Function {
+            "this"
+        } else {
+            ""
+        };
         let mut comp = Compiler {
             parser: Rc::clone(&tmp.parser),
             function: Self::new_function(Some(name), 0),
             function_type,
-            locals: vec![],
+            locals: vec![
+                Local {
+                    name: Token::generic_ident(local_name),
+                    depth: 0,
+                    initialized: true,
+                    captured: false
+                }
+            ],
             scope_depth: 0,
             upvalues: Vec::with_capacity(5),
+            class_stack: Rc::clone(&tmp.class_stack),
             enclosing: Some(Box::new(tmp)),
         };
         comp.begin_scope();
@@ -279,6 +303,10 @@ impl Compiler {
         if self.parser_mut().match_next(Type::Semicolon) {
             self.emit_return();
         } else {
+            if self.function_type == FunctionType::Initializer {
+                self.error("Cannot return a value from an initializer.");
+            }
+
             self.expression();
             self.consume(Type::Semicolon, "Expected ';' after return value.");
             self.emit_opcode(OpCode::Return);
@@ -419,6 +447,14 @@ impl Compiler {
 
     fn string(&mut self) {
         self.emit_opcode(OpCode::Constant(Value::String(self.previous().lexeme)))
+    }
+
+    fn this(&mut self) {
+        if self.class_stack.borrow().is_empty() {
+            self.error("Cannot use 'this' outside of a class.");
+            return;
+        }
+        self.variable(false);
     }
 
     fn variable(&mut self, can_assign: bool) {
@@ -597,7 +633,11 @@ impl Compiler {
     }
 
     fn emit_return(&mut self) {
-        self.emit_opcode(OpCode::Constant(Value::Nil));
+        if self.function_type == FunctionType::Initializer {
+            self.emit_opcode(OpCode::GetLocal(0));
+        } else {
+            self.emit_opcode(OpCode::Constant(Value::Nil));
+        }
         self.emit_opcode(OpCode::Return);
     }
 
@@ -692,6 +732,7 @@ impl Compiler {
             upvalues: Vec::with_capacity(3),
 
             enclosing: None,
+            class_stack: Rc::new(RefCell::new(Vec::with_capacity(2)))
         }
     }
 }
@@ -807,7 +848,7 @@ static RULES: [ParseRule; 40] = [
     ParseRule::new(Precedence::None),                                             // PRINT
     ParseRule::new(Precedence::None),                                             // RETURN
     ParseRule::new(Precedence::None),                                             // SUPER
-    ParseRule::new(Precedence::None),                                             // THIS
+    ParseRule::new_both(|compiler, _| compiler.this(), None, Precedence::None), // THIS
     ParseRule::new_both(|compiler, _| compiler.literal(), None, Precedence::None), // TRUE
     ParseRule::new(Precedence::None),                                             // VAR
     ParseRule::new(Precedence::None),                                             // WHILE

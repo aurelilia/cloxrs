@@ -12,7 +12,7 @@ use super::compiler::Compiler;
 use super::disassembler;
 use super::opcode::OpCode;
 use super::value::Value;
-use crate::value::{BoundMethod, Class, ClosureObj, Instance, NativeFun, Upval};
+use crate::value::{ANY_ARITY, BoundMethod, Class, ClosureObj, Instance, NativeFun, Upval};
 use std::rc::Rc;
 
 type Res = Result<(), Failure>;
@@ -82,17 +82,7 @@ impl VM {
                 }
 
                 OpCode::GetLocal(local) => {
-                    // TODO: FIXME: I have no idea why, but stack slots seem misaligned
-                    // sometimes. Most of the time, a value is present at the correct slot;
-                    // sometimes though it's shifted down by 1?
-                    // This *seems* to work fine though,  did not test it much though...
-                    let t = self.stack.get(frame.slot_offset + local + 1).cloned();
-                    if let Some(t) = t {
-                        self.stack.push(t);
-                    } else {
-                        self.stack
-                            .push(self.stack[frame.slot_offset + local].clone())
-                    }
+                    self.stack.push(self.stack[frame.slot_offset + local].clone())
                 }
 
                 OpCode::SetLocal(local) => {
@@ -406,7 +396,7 @@ impl VM {
     fn call_value(&mut self, callee: Value, arg_count: usize) -> bool {
         let arity = callee.arity();
         if let Some(arity) = arity {
-            if arg_count != arity {
+            if arg_count != arity && arity != ANY_ARITY {
                 self.print_error(&format!(
                     "Incorrect amount of function arguments (wanted {}, got {})",
                     arity, arg_count
@@ -440,17 +430,34 @@ impl VM {
             }
 
             Value::Class(class) => {
+                let initializer = class.borrow().methods.get("init").cloned();
+
                 let inst = Instance {
                     class,
                     fields: HashMap::with_capacity(8),
                 };
-                self.stack_pop();
-                self.stack
-                    .push(Value::Instance(Rc::new(RefCell::new(inst))));
+
+                let receiver_pos = self.stack.len() - arg_count - 1;
+                self.stack[receiver_pos] = Value::Instance(Rc::new(RefCell::new(inst)));
+
+                if let Some(init) = initializer {
+                    return self.call(init.into_closure(), arg_count)
+                } else if arg_count != 0 {
+                    self.print_error(&format!(
+                        "Incorrect amount of constructor arguments (wanted {}, got {})",
+                        0, arg_count
+                    ));
+                    return false
+                }
+
                 true
             }
 
-            Value::BoundMethod(method) => self.call(Rc::clone(&method.method), arg_count),
+            Value::BoundMethod(method) => {
+                let receiver_pos = self.stack.len() - arg_count - 1;
+                self.stack[receiver_pos] = method.receiver.clone();
+                self.call(Rc::clone(&method.method), arg_count)
+            }
 
             _ => panic!("unknown callee"),
         }
