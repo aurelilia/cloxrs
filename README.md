@@ -15,9 +15,9 @@ mostly unoptimized and probably slower than clox.
 
 ### Additional native functions
 
-- `readfile`: Takes 1 path/string parameter, returns file content as string or nil
+- `readfile`: Takes 1 path parameter, returns file content as string or nil
 if file could not be read
-- `writefile`: Takes 1 path/string parameter and one file content parameter, 
+- `writefile`: Takes 1 path parameter and one file content parameter, 
 returns success (bool)
 
 ### Implementation differences

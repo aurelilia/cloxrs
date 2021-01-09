@@ -7,17 +7,18 @@ use std::{
 
 use either::Either;
 use smallvec::SmallVec;
-use smol_str::SmolStr;
 
-use super::compiler::Compiler;
+// use super::compiler::Compiler;
 use super::disassembler;
 use super::opcode::OpCode;
 use super::value::Value;
 use crate::{
-    hashmap, hashset,
+    compiler::Compiler,
+    hashmap,
+    interner::{self, Map, StrId},
     value::{BoundMethod, Class, ClosureObj, Instance, NativeFun, Upval, ANY_ARITY},
     vec::SVec,
-    HashMap, HashSet, MutRc, UInt,
+    HashMap, MutRc, UInt,
 };
 
 type Res = Result<(), Failure>;
@@ -25,7 +26,7 @@ type Res = Result<(), Failure>;
 pub struct VM {
     frames: SVec<[CallFrame; 64]>,
     stack: SVec<[Value; 256]>,
-    globals: HashMap<SmolStr, Value>,
+    globals: Map<Value>,
 
     open_upvalues: SVec<[Upval; 16]>,
     closed_upvalues: HashMap<u32, Value>,
@@ -65,11 +66,11 @@ impl VM {
                 }
 
                 OpCode::GetGlobal(global) => {
-                    let value = self.globals.get(&global);
+                    let value = self.globals.get(global);
                     if let Some(value) = value {
                         self.stack.push(value.clone());
                     } else {
-                        self.print_error(&format!("Undefined variable {}.", global));
+                        self.print_error(&format!("Undefined variable {}.", interner::str(global)));
                         break;
                     }
                 }
@@ -77,10 +78,10 @@ impl VM {
                 OpCode::SetGlobal(global) => {
                     if self
                         .globals
-                        .insert(global.clone(), self.stack_last().clone())
+                        .insert(global, self.stack_last().clone())
                         .is_none()
                     {
-                        self.print_error(&format!("Undefined variable {}.", global));
+                        self.print_error(&format!("Undefined variable {}.", interner::str(global)));
                         break;
                     }
                 }
@@ -123,7 +124,7 @@ impl VM {
                         break;
                     };
 
-                    let field = inst.borrow().fields.get(&name).cloned();
+                    let field = inst.borrow().fields.get(name).cloned();
                     if let Some(value) = field {
                         self.stack.push(value);
                     } else {
@@ -140,11 +141,7 @@ impl VM {
                         break;
                     };
 
-                    if let Value::Nil = value {
-                        inst.borrow_mut().fields.remove(&name);
-                    } else {
-                        inst.borrow_mut().fields.insert(name, value.clone());
-                    }
+                    inst.borrow_mut().fields.insert(name, value.clone());
                     self.stack.push(value);
                 }
 
@@ -215,7 +212,7 @@ impl VM {
 
                 OpCode::InvokeSuper(method, arg_count) => {
                     let superclass = self.stack_pop().into_class();
-                    if !self.invoke_from_class(&superclass, &method, arg_count) {
+                    if !self.invoke_from_class(&superclass, method, arg_count) {
                         break;
                     }
                 }
@@ -254,12 +251,12 @@ impl VM {
                 OpCode::Class(name) => {
                     self.stack.push(Value::Class(Rc::new(RefCell::new(Class {
                         name,
-                        methods: HashMap::default(),
+                        methods: Map::new(),
                     }))))
                 }
 
                 OpCode::EndClass(inherit) => {
-                    let mut methods = hashmap(5);
+                    let mut methods = Map::new();
 
                     let mut last = self.stack_pop();
                     while let Value::Closure(cls) = last {
@@ -271,12 +268,7 @@ impl VM {
                     if inherit {
                         if let Value::Class(cls) = self.stack_last() {
                             let super_methods = &cls.borrow().methods;
-                            methods.reserve(super_methods.len());
-                            for method in super_methods.iter() {
-                                if !methods.contains_key(method.0) {
-                                    methods.insert(method.0.clone(), method.1.clone());
-                                }
-                            }
+                            methods.add_missing(&super_methods);
                         } else {
                             self.print_error("Superclass must be a class.");
                             break;
@@ -338,8 +330,8 @@ impl VM {
             .find(|(_, v)| v.get().left().unwrap() == idx)
     }
 
-    fn bind_method(&mut self, class: &MutRc<Class>, inst: &MutRc<Instance>, name: SmolStr) {
-        let method = class.borrow().methods.get(&name).cloned();
+    fn bind_method(&mut self, class: &MutRc<Class>, inst: &MutRc<Instance>, name: StrId) {
+        let method = class.borrow().methods.get(name).cloned();
         if let Some(method) = method {
             let bound = BoundMethod {
                 receiver: Value::Instance(Rc::clone(inst)),
@@ -359,15 +351,15 @@ impl VM {
     }
 
     fn collect_garbage(&mut self) {
-        let mut keep = hashset(self.closed_upvalues.len());
+        /*let mut keep = hashset(self.closed_upvalues.len());
         self.mark_all(
             &mut keep,
             self.stack.iter().chain(self.globals.values()),
             true,
         );
-        self.closed_upvalues.retain(|k, _| keep.contains(k));
+        self.closed_upvalues.retain(|k, _| keep.contains(k));*/
     }
-
+    /* TODO: Implement map iter to fix GC
     fn mark_all<'m>(
         &self,
         keep: &mut HashSet<u32>,
@@ -396,7 +388,7 @@ impl VM {
             Value::BoundMethod(method) if rec => self.mark_value(keep, &method.receiver, false),
             _ => (),
         };
-    }
+    }*/
 
     fn unary_instruction(&mut self) -> Option<Value> {
         let opcode = self.get_current_instruction();
@@ -474,11 +466,15 @@ impl VM {
             }
 
             Value::Class(class) => {
-                let initializer = class.borrow().methods.get("init").cloned();
+                let initializer = class
+                    .borrow()
+                    .methods
+                    .get(interner::intern("init"))
+                    .cloned();
 
                 let inst = Instance {
                     class,
-                    fields: hashmap(8),
+                    fields: Map::new(),
                 };
 
                 let receiver_pos = self.stack.len() - arg_count - 1;
@@ -513,7 +509,7 @@ impl VM {
         true
     }
 
-    fn invoke(&mut self, name: SmolStr, arg_count: UInt) -> bool {
+    fn invoke(&mut self, name: StrId, arg_count: UInt) -> bool {
         let receiver_pos = self.stack.len() - arg_count - 1;
         let inst = if let Value::Instance(inst) = &self.stack[receiver_pos] {
             inst
@@ -522,22 +518,22 @@ impl VM {
             return false;
         };
 
-        let field = inst.borrow().fields.get(&name).cloned();
+        let field = inst.borrow().fields.get(name).cloned();
         if let Some(field) = field {
             self.stack[receiver_pos] = field.clone();
             return self.call_value(field, arg_count);
         }
 
         let class = Rc::clone(&inst.borrow().class);
-        self.invoke_from_class(&class, &name, arg_count)
+        self.invoke_from_class(&class, name, arg_count)
     }
 
-    fn invoke_from_class(&mut self, class: &MutRc<Class>, name: &SmolStr, arg_count: UInt) -> bool {
+    fn invoke_from_class(&mut self, class: &MutRc<Class>, name: StrId, arg_count: UInt) -> bool {
         let method = class.borrow().methods.get(name).cloned();
         if let Some(method) = method {
             self.call(method.into_closure(), arg_count)
         } else {
-            self.print_error(&format!("Undefined method {}.", name));
+            self.print_error(&format!("Undefined method {}.", interner::str(name)));
             false
         }
     }
@@ -565,24 +561,14 @@ impl VM {
         });
 
         self.define_native("readfile", 1, |a| {
-            let name = match &a[0] {
-                Value::String(name) => name,
-                _ => return Err("readfile: First argument must be file name as string"),
-            };
-
-            let file = fs::read_to_string(name.as_str());
+            let file = fs::read_to_string(a[0].to_string());
             Ok(file
-                .map(|t| Value::String(SmolStr::new(t)))
+                .map(|t| Value::String(Either::Right(Rc::from(t))))
                 .unwrap_or(Value::Nil))
         });
 
         self.define_native("writefile", 2, |a| {
-            let name = match &a[1] {
-                Value::String(name) => name,
-                _ => return Err("writefile: First argument must be file name as string"),
-            };
-
-            let res = fs::write(name.as_str(), a[0].to_string());
+            let res = fs::write(a[1].to_string(), a[0].to_string());
             Ok(Value::Bool(res.is_ok()))
         });
     }
@@ -593,9 +579,9 @@ impl VM {
         arity: UInt,
         func: fn(&[Value]) -> Result<Value, &str>,
     ) {
-        let name = SmolStr::new_inline(name);
+        let name = interner::intern(name);
         self.globals.insert(
-            name.clone(),
+            name,
             Value::NativeFun(Rc::new(RefCell::new(NativeFun { name, arity, func }))),
         );
     }
@@ -604,7 +590,7 @@ impl VM {
         VM {
             frames: SVec::new(),
             stack: SVec::new(),
-            globals: hashmap(16),
+            globals: Map::new(),
             open_upvalues: SVec::new(),
             closed_upvalues: hashmap(5),
             upvalue_count: 0,

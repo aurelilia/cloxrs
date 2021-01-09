@@ -1,20 +1,26 @@
 use either::Either;
 use smallvec::SmallVec;
-use smol_str::SmolStr;
 use std::{cell::Cell, fmt, mem::discriminant, ops::*, rc::Rc};
 
-use crate::MutRc;
-use crate::{chunk::Chunk, HashMap, UInt};
+use crate::{chunk::Chunk, UInt};
+use crate::{
+    interner::{self, Map, StrId},
+    MutRc,
+};
 
 // left: open, right: closed
 pub type Upval = Rc<Cell<Either<u32, u32>>>;
+
+// String literals are StrId, dynamically created
+// strings are Rc<str>
+pub type StringVal = Either<StrId, Rc<str>>;
 
 #[derive(Debug, Clone, PartialEq, EnumAsGetters, EnumIsA, EnumIntoGetters)]
 pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
-    String(SmolStr),
+    String(StringVal),
     Closure(Rc<ClosureObj>),
     NativeFun(MutRc<NativeFun>),
     Class(MutRc<Class>),
@@ -22,16 +28,16 @@ pub enum Value {
     BoundMethod(Rc<BoundMethod>),
 }
 
-fn print_fn_name(name: &Option<SmolStr>, f: &mut fmt::Formatter) -> fmt::Result {
+fn print_fn_name(name: &Option<StrId>, f: &mut fmt::Formatter) -> fmt::Result {
     match name {
-        Some(name) => write!(f, "<fn {}>", name),
+        Some(name) => write!(f, "<fn {}>", interner::str(*name)),
         None => write!(f, "<script>"),
     }
 }
 
 #[derive(PartialEq)]
 pub struct Function {
-    pub name: Option<SmolStr>,
+    pub name: Option<StrId>,
     pub arity: UInt,
     pub chunk: Chunk,
     pub upvalue_count: UInt,
@@ -75,20 +81,20 @@ pub struct Upvalue {
     pub is_local: bool,
 }
 pub struct NativeFun {
-    pub name: SmolStr,
+    pub name: StrId,
     pub arity: UInt,
     pub func: fn(&[Value]) -> Result<Value, &str>,
 }
 
 impl fmt::Display for NativeFun {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        print_fn_name(&Some(self.name.clone()), f)
+        print_fn_name(&Some(self.name), f)
     }
 }
 
 impl fmt::Debug for NativeFun {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        print_fn_name(&Some(self.name.clone()), f)
+        print_fn_name(&Some(self.name), f)
     }
 }
 
@@ -100,14 +106,14 @@ impl PartialEq for NativeFun {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Class {
-    pub name: SmolStr,
-    pub methods: HashMap<SmolStr, Value>,
+    pub name: StrId,
+    pub methods: Map<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Instance {
     pub class: MutRc<Class>,
-    pub fields: HashMap<SmolStr, Value>,
+    pub fields: Map<Value>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -162,17 +168,22 @@ impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Number(val) => write!(f, "{}", val),
-            Value::String(val) => write!(f, "{}", val),
+            Value::String(Either::Left(val)) => write!(f, "{}", interner::str(*val)),
+            Value::String(Either::Right(val)) => write!(f, "{}", val),
             Value::Bool(val) => write!(f, "{}", val),
             Value::Nil => write!(f, "nil"),
             Value::Closure(func) => write!(f, "{}", func.function.borrow()),
             Value::NativeFun(func) => write!(f, "{}", func.borrow()),
-            Value::Class(cls) => write!(f, "<class {}>", cls.borrow().name),
-            Value::Instance(obj) => write!(f, "<{} instance>", obj.borrow().class.borrow().name),
+            Value::Class(cls) => write!(f, "<class {}>", interner::str(cls.borrow().name)),
+            Value::Instance(obj) => write!(
+                f,
+                "<{} instance>",
+                interner::str(obj.borrow().class.borrow().name)
+            ),
             Value::BoundMethod(meth) => write!(
                 f,
                 "<bound method {}>",
-                meth.method.function.borrow().name.as_ref().unwrap()
+                interner::str(meth.method.function.borrow().name.unwrap())
             ),
         }
     }
@@ -185,9 +196,9 @@ impl Add for Value {
         if self.is_number() && other.is_number() {
             Some(Value::Number(self.as_number() + other.as_number()))
         } else {
-            Some(Value::String(SmolStr::new(
-                self.to_string() + &other.to_string(),
-            )))
+            Some(Value::String(Either::Right(Rc::from(
+                (self.to_string() + &other.to_string()).as_str(),
+            ))))
         }
     }
 }

@@ -1,6 +1,6 @@
-use crate::compiler::scanner::Scanner;
 use crate::compiler::token::{Token, Type};
 use crate::MutRc;
+use crate::{compiler::scanner::Scanner, interner};
 use std::cell::RefCell;
 use std::mem;
 use std::rc::Rc;
@@ -24,7 +24,7 @@ impl Parser {
             self.previous = mem::replace(&mut self.current, tok);
 
             if let Type::Error = self.current.t_type {
-                self.error(&self.current.lexeme.clone());
+                self.error(&interner::str(self.current.lexeme));
             } else {
                 break;
             }

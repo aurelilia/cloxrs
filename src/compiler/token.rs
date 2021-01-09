@@ -1,9 +1,9 @@
-use smol_str::SmolStr;
+use crate::interner::{self, StrId};
 
 #[derive(Debug, Clone)]
 pub struct Token {
     pub t_type: Type,
-    pub lexeme: SmolStr,
+    pub lexeme: StrId,
     pub line: usize,
 }
 
@@ -11,7 +11,7 @@ impl Token {
     pub fn generic_token(token: Type) -> Token {
         Token {
             t_type: token,
-            lexeme: SmolStr::new_inline(""),
+            lexeme: interner::intern(""),
             line: 0,
         }
     }
@@ -19,7 +19,7 @@ impl Token {
     pub fn generic_ident(text: &str) -> Token {
         Token {
             t_type: Type::Identifier,
-            lexeme: SmolStr::new_inline(text),
+            lexeme: interner::intern(text),
             line: 0,
         }
     }

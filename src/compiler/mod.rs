@@ -4,12 +4,14 @@ mod token;
 
 use plain_enum::TPlainEnum;
 use smallvec::SmallVec;
-use smol_str::SmolStr;
 
 use super::chunk::{Chunk, OpCodeLine};
 use super::opcode::OpCode;
-use crate::MutRc;
 use crate::{compiler::parser::Parser, disassembler::disassemble_chunk};
+use crate::{
+    interner::{self, StrId},
+    MutRc,
+};
 use crate::{
     opcode::Constant,
     value::{Closure, Function, Upvalue},
@@ -90,8 +92,8 @@ impl Compiler {
         self.declare_variable();
         let name = self.previous();
 
-        self.emit_opcode(OpCode::Class(name.lexeme.clone()));
-        self.define_variable(Some(name.lexeme.clone()));
+        self.emit_opcode(OpCode::Class(name.lexeme));
+        self.define_variable(Some(name.lexeme));
 
         let inherit = self.parser_mut().match_next(Type::Less);
         self.class_stack.borrow_mut().push(ClassCompile {
@@ -132,7 +134,7 @@ impl Compiler {
 
     fn method(&mut self) {
         self.consume(Type::Identifier, "Expected method name.");
-        let fn_ty = if self.parser().previous.lexeme == "init" {
+        let fn_ty = if self.parser().previous.lexeme == interner::intern("init") {
             FunctionType::Initializer
         } else {
             FunctionType::Method
@@ -169,7 +171,7 @@ impl Compiler {
     fn function(&mut self, function_type: FunctionType) {
         let tmp: Compiler = mem::replace(self, unsafe { MaybeUninit::uninit().assume_init() });
 
-        let name = tmp.parser_mut().previous.lexeme.clone();
+        let name = tmp.parser_mut().previous.lexeme;
 
         let local_name = if function_type != FunctionType::Function {
             "this"
@@ -474,7 +476,9 @@ impl Compiler {
             Type::Nil => self.emit_opcode(OpCode::Constant(Constant::Nil)),
             Type::True => self.emit_opcode(OpCode::Constant(Constant::Bool(true))),
             Type::Number => {
-                let value: f64 = self.previous().lexeme.parse().expect("Invalid number?");
+                let value: f64 = interner::str(self.previous().lexeme)
+                    .parse()
+                    .expect("Invalid number?");
                 self.emit_opcode(OpCode::Constant(Constant::Number(value)));
             }
             _ => (),
@@ -533,8 +537,8 @@ impl Compiler {
             get_op = OpCode::GetUpvalue(upvalue);
             set_op = OpCode::SetUpvalue(upvalue);
         } else {
-            get_op = OpCode::GetGlobal(name.lexeme.clone());
-            set_op = OpCode::SetGlobal(name.lexeme.clone());
+            get_op = OpCode::GetGlobal(name.lexeme);
+            set_op = OpCode::SetGlobal(name.lexeme);
         }
 
         if can_assign && self.parser_mut().match_next(Type::Equal) {
@@ -592,7 +596,7 @@ impl Compiler {
         self.function.upvalue_count - 1
     }
 
-    fn parse_variable(&mut self, message: &str) -> Option<SmolStr> {
+    fn parse_variable(&mut self, message: &str) -> Option<StrId> {
         self.consume(Type::Identifier, message);
 
         self.declare_variable();
@@ -621,7 +625,7 @@ impl Compiler {
         self.add_local(self.previous());
     }
 
-    fn define_variable(&mut self, global: Option<SmolStr>) {
+    fn define_variable(&mut self, global: Option<StrId>) {
         if self.scope_depth == 0 {
             self.emit_opcode(OpCode::DefineGlobal(global.unwrap()));
         } else {
@@ -750,7 +754,7 @@ impl Compiler {
         &mut self.function.chunk
     }
 
-    fn new_function(name: Option<SmolStr>, arity: UInt) -> Function {
+    fn new_function(name: Option<StrId>, arity: UInt) -> Function {
         Function {
             name,
             arity,

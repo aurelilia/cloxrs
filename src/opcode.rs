@@ -1,16 +1,16 @@
 use super::value::Value;
-use crate::{value::Closure, UInt};
-use smol_str::SmolStr;
+use crate::{interner::StrId, value::Closure, UInt};
+use either::Either;
 use std::rc::Rc;
 
 #[derive(Debug, PartialEq, Clone)]
 #[repr(u8)]
 pub enum OpCode {
     Constant(Constant),
-    DefineGlobal(SmolStr),
+    DefineGlobal(StrId),
 
-    GetGlobal(SmolStr),
-    SetGlobal(SmolStr),
+    GetGlobal(StrId),
+    SetGlobal(StrId),
 
     GetUpvalue(UInt),
     SetUpvalue(UInt),
@@ -18,9 +18,9 @@ pub enum OpCode {
     GetLocal(UInt),
     SetLocal(UInt),
 
-    GetProperty(SmolStr),
-    SetProperty(SmolStr),
-    GetSuper(SmolStr),
+    GetProperty(StrId),
+    SetProperty(StrId),
+    GetSuper(StrId),
 
     Pop,
     HoistUpvalue,
@@ -43,14 +43,14 @@ pub enum OpCode {
 
     Call(UInt),
     // Name, args count
-    Invoke(SmolStr, UInt),
+    Invoke(StrId, UInt),
     // Name, args count
-    InvokeSuper(SmolStr, UInt),
+    InvokeSuper(StrId, UInt),
 
     Return,
 
     Closure(Rc<Closure>),
-    Class(SmolStr),
+    Class(StrId),
     EndClass(bool),
 }
 
@@ -59,7 +59,7 @@ pub enum Constant {
     Nil,
     Bool(bool),
     Number(f64),
-    String(SmolStr),
+    String(StrId),
 }
 
 impl Constant {
@@ -68,7 +68,7 @@ impl Constant {
             Constant::Nil => Value::Nil,
             Constant::Bool(b) => Value::Bool(b),
             Constant::Number(n) => Value::Number(n),
-            Constant::String(s) => Value::String(s),
+            Constant::String(s) => Value::String(Either::Left(s)),
         }
     }
 }

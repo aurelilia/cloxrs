@@ -1,5 +1,7 @@
 use smol_str::SmolStr;
 
+use crate::interner;
+
 use super::token::{Token, Type};
 
 /// A scanner is an iterator that turns Lox source code into [Token]s.
@@ -67,7 +69,7 @@ impl Scanner {
         }
         let mut token = self.make_token(Type::Identifier);
 
-        token.t_type = match &token.lexeme[..] {
+        token.t_type = match &interner::str(token.lexeme)[..] {
             "and" => Type::And,
             "class" => Type::Class,
             "else" => Type::Else,
@@ -128,10 +130,13 @@ impl Scanner {
     fn make_token(&mut self, t_type: Type) -> Token {
         Token {
             t_type,
-            lexeme: self.chars[(self.start)..(self.current)]
-                .iter()
-                .copied()
-                .collect(),
+            lexeme: interner::intern(
+                self.chars[(self.start)..(self.current)]
+                    .iter()
+                    .copied()
+                    .collect::<SmolStr>()
+                    .as_str(),
+            ),
             line: self.line,
         }
     }
@@ -140,7 +145,7 @@ impl Scanner {
     fn error_token(&mut self, message: &'static str) -> Token {
         Token {
             t_type: Type::Error,
-            lexeme: SmolStr::new(message),
+            lexeme: interner::intern(message),
             line: self.line,
         }
     }
