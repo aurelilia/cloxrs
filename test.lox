@@ -177,3 +177,14 @@ cruller.finish();
 print "say something...";
 var in = input();
 print in + "? yes, i agree.";
+
+print "something else?";
+in = input();
+print "say it more! " + (in * 5);
+
+printf("look ma, ");
+print "no newlines!";
+
+print "";
+print "";
+print "Thank you for everything.";

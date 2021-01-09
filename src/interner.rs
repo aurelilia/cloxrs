@@ -10,14 +10,18 @@ thread_local! {
     static INTERN: RefCell<StringInterner::<StrId, BucketBackend<StrId>, BuildHasherDefault<FxHasher>>> = RefCell::new(StringInterner::with_capacity(500));
 }
 
+/// Return interned variant of given string
 pub fn intern<T: AsRef<str>>(of: T) -> StrId {
     INTERN.with(|i| i.borrow_mut().get_or_intern(of))
 }
 
+/// Return string of interned id
 pub fn str(of: StrId) -> SmolStr {
     INTERN.with(|i| SmolStr::new(i.borrow().resolve(of).unwrap()))
 }
 
+/// Hash an interned string. This uses FNV like clox, but only
+/// on a single value (the id itself, not the string bytes).
 fn hash(id: StrId) -> usize {
     let mut hash = 2166136261;
     hash ^= id.to_usize();
@@ -29,6 +33,8 @@ fn mask(cap: usize) -> usize {
     cap - 1
 }
 
+/// A simple map or hashtable using interned strings as keys.
+/// API is mostly identical to stdlib HashMap.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Map<V: Clone> {
     pub len: u32,

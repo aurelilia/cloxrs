@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::UInt;
+
 pub struct SVec<V: Array>(SmallVec<V>);
 
 impl<V: Array> SVec<V> {
@@ -21,8 +22,8 @@ impl<V: Array> SVec<V> {
         self.0.last().unwrap()
     }
 
-    pub fn len(&self) -> u32 {
-        self.0.len() as u32
+    pub fn len(&self) -> UInt {
+        self.0.len() as UInt
     }
 
     pub fn new() -> Self {

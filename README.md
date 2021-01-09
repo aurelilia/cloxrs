@@ -6,13 +6,15 @@ It also replaces some parts of clox by leveraging Rust's features.
 
 It is a fully-featured Lox VM, and all features are implemented, however it's about
 4-7x slower (depending on the benchmark) than clox due to different
-design decisions as well as a few limitations of Rust's memory model, 
+design decisions as well as a few limitations of Rust's memory model.
 
 ### Notable user-facing differences to clox
 
 - Stack can be bigger than 256
 - Strings can be concatenated with anything
-- Missing class fields simply produce `nil` instead of a runtime error
+- Missing class fields produce `nil` instead of a runtime error
+- Multiplying something other than a number with a number will repeat its string
+representation (`("a" * 3) == "aaa"`) 
 
 ### Additional native functions
 
@@ -21,6 +23,7 @@ if file could not be read
 - `writefile`: Takes 1 path parameter and one file content parameter, 
 returns success (bool)
 - `input`: Waits for user to input one line, returns input. Newline at the end is stripped.
+- `printf`: Takes 1 argument, prints it without a newline.
 
 ### Implementation differences
 

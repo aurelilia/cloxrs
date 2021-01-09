@@ -3,7 +3,6 @@ use std::{cell::{Cell, RefCell}, fs, io, rc::Rc, time::{SystemTime, UNIX_EPOCH}}
 use either::Either;
 use smallvec::SmallVec;
 
-// use super::compiler::Compiler;
 use super::disassembler;
 use super::opcode::OpCode;
 use super::value::Value;
@@ -392,6 +391,8 @@ impl VM {
         }
     }
 
+    /// The garbage collector does not need to do much: most values are refcounted.
+    /// The only thing to collect are closed upvalues.
     fn collect_garbage(&mut self) {
         let mut keep = hashset(self.closed_upvalues.len());
         self.mark_all(
@@ -434,8 +435,8 @@ impl VM {
 
     fn unary_instruction(&mut self, opcode: &OpCode) -> Option<Value> {
         match opcode {
-            OpCode::Negate => -self.stack_pop(),
-            OpCode::Not => !self.stack_pop(),
+            OpCode::Negate => self.stack_pop().neg(),
+            OpCode::Not => Some(self.stack_pop().not()),
             _ => panic!("unknown opcode"),
         }
     }
@@ -445,10 +446,10 @@ impl VM {
         let a = self.stack_pop();
 
         match opcode {
-            OpCode::Add => a + b,
-            OpCode::Subtract => a - b,
-            OpCode::Multiply => a * b,
-            OpCode::Divide => a / b,
+            OpCode::Add => Some(a.add(b)),
+            OpCode::Subtract => a.sub(b),
+            OpCode::Multiply => a.mul(b),
+            OpCode::Divide => a.div(b),
 
             OpCode::Equal => Some(Value::Bool(a == b)),
             OpCode::Greater => a.greater(b),
@@ -601,6 +602,11 @@ impl VM {
             input.pop(); // Newline
             Ok(Value::DynString(Rc::from(input)))
         });
+
+        self.define_native("printf", 1, |a| {
+            print!("{}", a[0]);
+            Ok(Value::Nil)
+        });
     }
 
     fn define_native(
@@ -633,7 +639,6 @@ pub enum Failure {
     RuntimeError,
 }
 
-#[derive(Debug)]
 pub struct CallFrame {
     closure: Rc<ClosureObj>,
     ip: UInt,
