@@ -28,6 +28,8 @@ returns success (bool)
 with all other constants embedded into the instruction.
 - The table/map implementation uses the interner key for faster hashing instead of
 storing the hash of every string.
+- Frames are stored implicitly in the VM callstack, with `run` recursing with every call.
+This is faster, but also means that the VM does not display stack traces. 
 - Due to not wanting to use unsafe Rust, upvalues are implemented entirely
 different and use `Rc<Cell<...>>`. This mostly removes the need for GC, which is why cloxrs
 GC only has to infreqently collect upvalues. This does make them slower though.

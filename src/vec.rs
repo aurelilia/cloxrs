@@ -17,10 +17,6 @@ impl<V: Array> SVec<V> {
         }
     }
 
-    pub fn try_pop(&mut self) -> Option<V::Item> {
-        self.0.pop()
-    }
-
     pub fn last(&self) -> &V::Item {
         self.0.last().unwrap()
     }

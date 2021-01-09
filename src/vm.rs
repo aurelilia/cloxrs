@@ -1,6 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
-    fs, mem,
+    fs,
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -22,9 +22,9 @@ use crate::{
 };
 
 type Res = Result<(), Failure>;
+type R<T> = Result<T, String>;
 
 pub struct VM {
-    frames: SVec<[CallFrame; 64]>,
     stack: SVec<[Value; 256]>,
     globals: Map<Value>,
 
@@ -36,7 +36,6 @@ pub struct VM {
 
 impl VM {
     pub fn interpret(&mut self, source: &str) -> Res {
-        self.frames.clear();
         let mut compiler = Compiler::new(source);
 
         let cls = compiler.compile().ok_or(Failure::CompileError)?;
@@ -46,20 +45,22 @@ impl VM {
         let cls = cls.to_obj();
         self.stack.push(Value::Closure(cls.clone()));
 
-        self.run(cls)
+        self.run(cls, 0)
     }
 
-    fn run(&mut self, closure: Rc<ClosureObj>) -> Res {
+    fn run(&mut self, closure: Rc<ClosureObj>, slot_offset: UInt) -> Res {
         let mut frame = CallFrame {
             closure,
             ip: 0,
-            slot_offset: self.stack.len() - 1,
+            slot_offset,
         };
 
+        let current_func = Rc::clone(&frame.closure.function);
+        let current_func = current_func.borrow();
+
         loop {
+            let current_inst = &current_func.chunk.code[(frame.ip) as usize].code;
             frame.ip += 1;
-            let current_func = frame.closure.function.borrow();
-            let current_inst = &current_func.chunk.code[(frame.ip - 1) as usize].code;
 
             match current_inst {
                 OpCode::ConstNil => self.stack.push(Value::Nil),
@@ -76,10 +77,11 @@ impl VM {
                     if let Some(value) = value {
                         self.stack.push(value.clone());
                     } else {
-                        self.print_error(&format!(
-                            "Undefined variable {}.",
-                            interner::str(*global)
-                        ));
+                        let line = current_func.chunk.code[(frame.ip) as usize].line;
+                        self.print_error(
+                            line,
+                            &format!("Undefined variable {}.", interner::str(*global)),
+                        );
                         break;
                     }
                 }
@@ -90,10 +92,11 @@ impl VM {
                         .insert(*global, self.stack_last().clone())
                         .is_none()
                     {
-                        self.print_error(&format!(
-                            "Undefined variable {}.",
-                            interner::str(*global)
-                        ));
+                        let line = current_func.chunk.code[(frame.ip) as usize].line;
+                        self.print_error(
+                            line,
+                            &format!("Undefined variable {}.", interner::str(*global)),
+                        );
                         break;
                     }
                 }
@@ -132,7 +135,8 @@ impl VM {
                     let inst = if let Value::Instance(inst) = self.stack_pop() {
                         inst
                     } else {
-                        self.print_error("Only instances have properties.");
+                        let line = current_func.chunk.code[(frame.ip) as usize].line;
+                        self.print_error(line, "Only instances have properties.");
                         break;
                     };
 
@@ -149,7 +153,8 @@ impl VM {
                     let inst = if let Value::Instance(inst) = self.stack_pop() {
                         inst
                     } else {
-                        self.print_error("Only instances have properties.");
+                        let line = current_func.chunk.code[(frame.ip) as usize].line;
+                        self.print_error(line, "Only instances have properties.");
                         break;
                     };
 
@@ -174,7 +179,8 @@ impl VM {
                     if let Some(result) = result {
                         self.stack.push(result)
                     } else {
-                        self.print_error("Unary operation had an invalid operand!");
+                        let line = current_func.chunk.code[(frame.ip) as usize].line;
+                        self.print_error(line, "Unary operation had an invalid operand!");
                         break;
                     }
                 }
@@ -190,7 +196,8 @@ impl VM {
                     if let Some(result) = result {
                         self.stack.push(result)
                     } else {
-                        self.print_error("Binary operation had invalid operands!");
+                        let line = current_func.chunk.code[(frame.ip) as usize].line;
+                        self.print_error(line, "Binary operation had invalid operands!");
                         break;
                     }
                 }
@@ -215,15 +222,16 @@ impl VM {
                     );
 
                     match result {
-                        Some(Some(new_frame)) => {
-                            drop(current_func);
-                            let old_frame = mem::replace(&mut frame, new_frame);
-                            self.frames.push(old_frame);
+                        Ok(Some(new_frame)) => {
+                            self.run(new_frame.closure, new_frame.slot_offset)?;
                         }
 
-                        Some(None) => (),
+                        Ok(None) => (),
 
-                        None => break,
+                        Err(msg) => {
+                            let line = current_func.chunk.code[(frame.ip) as usize].line;
+                            self.print_error(line, &msg)
+                        }
                     }
                 }
 
@@ -231,15 +239,16 @@ impl VM {
                     let result = self.invoke(*method, *arg_count);
 
                     match result {
-                        Some(Some(new_frame)) => {
-                            drop(current_func);
-                            let old_frame = mem::replace(&mut frame, new_frame);
-                            self.frames.push(old_frame);
+                        Ok(Some(new_frame)) => {
+                            self.run(new_frame.closure, new_frame.slot_offset)?;
                         }
 
-                        Some(None) => (),
+                        Ok(None) => (),
 
-                        None => break,
+                        Err(msg) => {
+                            let line = current_func.chunk.code[(frame.ip) as usize].line;
+                            self.print_error(line, &msg)
+                        }
                     }
                 }
 
@@ -248,15 +257,16 @@ impl VM {
                     let result = self.invoke_from_class(&superclass, *method, *arg_count);
 
                     match result {
-                        Some(Some(new_frame)) => {
-                            drop(current_func);
-                            let old_frame = mem::replace(&mut frame, new_frame);
-                            self.frames.push(old_frame);
+                        Ok(Some(new_frame)) => {
+                            self.run(new_frame.closure, new_frame.slot_offset)?;
                         }
 
-                        Some(None) => (),
+                        Ok(None) => (),
 
-                        None => break,
+                        Err(msg) => {
+                            let line = current_func.chunk.code[(frame.ip) as usize].line;
+                            self.print_error(line, &msg)
+                        }
                     }
                 }
 
@@ -266,16 +276,13 @@ impl VM {
                         self.pop_or_hoist();
                     }
 
-                    let last_frame = self.frames.try_pop();
-                    if let Some(last_frame) = last_frame {
-                        drop(current_func);
-                        frame = last_frame;
+                    if frame.slot_offset != 0 {
+                        self.stack.push(result);
                     } else {
                         self.collect_garbage();
-                        return Ok(());
                     }
 
-                    self.stack.push(result);
+                    return Ok(());
                 }
 
                 OpCode::Closure(cls) => {
@@ -316,7 +323,8 @@ impl VM {
                             let super_methods = &cls.borrow().methods;
                             methods.add_missing(&super_methods);
                         } else {
-                            self.print_error("Superclass must be a class.");
+                            let line = current_func.chunk.code[(frame.ip) as usize].line;
+                            self.print_error(line, "Superclass must be a class.");
                             break;
                         }
                     }
@@ -455,19 +463,17 @@ impl VM {
         }
     }
 
-    fn call_value(&mut self, callee: Value, arg_count: UInt) -> Option<Option<CallFrame>> {
+    fn call_value(&mut self, callee: Value, arg_count: UInt) -> R<Option<CallFrame>> {
         let arity = callee.arity();
         if let Some(arity) = arity {
             if arg_count != arity && arity != ANY_ARITY {
-                self.print_error(&format!(
+                return Err(format!(
                     "Incorrect amount of function arguments (wanted {}, got {})",
                     arity, arg_count
                 ));
-                return None;
             }
         } else {
-            self.print_error("Can only call functions and classes.");
-            return None;
+            return Err("Can only call functions and classes.".to_string());
         }
 
         match callee {
@@ -484,13 +490,10 @@ impl VM {
                 match result {
                     Ok(value) => {
                         self.stack.push(value);
-                        Some(None)
+                        Ok(None)
                     }
 
-                    Err(msg) => {
-                        self.print_error(msg);
-                        None
-                    }
+                    Err(msg) => Err(msg.to_string()),
                 }
             }
 
@@ -512,13 +515,12 @@ impl VM {
                 if let Some(init) = initializer {
                     self.call(init.into_closure(), arg_count)
                 } else if arg_count != 0 {
-                    self.print_error(&format!(
+                    Err(format!(
                         "Incorrect amount of constructor arguments (wanted {}, got {})",
                         0, arg_count
-                    ));
-                    None
+                    ))
                 } else {
-                    Some(None)
+                    Ok(None)
                 }
             }
 
@@ -533,21 +535,20 @@ impl VM {
     }
 
     #[allow(clippy::unnecessary_wraps)]
-    fn call(&mut self, closure: Rc<ClosureObj>, arg_count: UInt) -> Option<Option<CallFrame>> {
-        Some(Some(CallFrame {
+    fn call(&mut self, closure: Rc<ClosureObj>, arg_count: UInt) -> R<Option<CallFrame>> {
+        Ok(Some(CallFrame {
             closure,
             ip: 0,
             slot_offset: self.stack.len() - arg_count - 1,
         }))
     }
 
-    fn invoke(&mut self, name: StrId, arg_count: UInt) -> Option<Option<CallFrame>> {
+    fn invoke(&mut self, name: StrId, arg_count: UInt) -> R<Option<CallFrame>> {
         let receiver_pos = self.stack.len() - arg_count - 1;
         let inst = if let Value::Instance(inst) = &self.stack[receiver_pos] {
             inst
         } else {
-            self.print_error("Only instances have methods.");
-            return None;
+            return Err("Only instances have methods.".to_string());
         };
 
         let field = inst.borrow().fields.get(name).cloned();
@@ -565,29 +566,17 @@ impl VM {
         class: &MutRc<Class>,
         name: StrId,
         arg_count: UInt,
-    ) -> Option<Option<CallFrame>> {
+    ) -> R<Option<CallFrame>> {
         let method = class.borrow().methods.get(name).cloned();
         if let Some(method) = method {
             self.call(method.into_closure(), arg_count)
         } else {
-            self.print_error(&format!("Undefined method {}.", interner::str(name)));
-            None
+            Err(format!("Undefined method {}.", interner::str(name)))
         }
     }
 
-    fn print_error(&mut self, message: &str) {
-        let frame = self.frames.last();
-        println!(
-            "[Line {}] Runtime error: {}",
-            frame.closure.function.borrow().chunk.code[(frame.ip - 1) as usize].line,
-            message
-        );
-        println!("Stack trace:");
-        for frame in self.frames.iter().rev() {
-            let func = frame.closure.function.borrow();
-            let line = func.chunk.code[(frame.ip - 1) as usize].line;
-            println!("[Line {}] in {}", line, func)
-        }
+    fn print_error(&mut self, line: usize, message: &str) {
+        println!("[Line {}] Runtime error: {}", line, message);
     }
 
     fn define_natives(&mut self) {
@@ -608,6 +597,15 @@ impl VM {
             let res = fs::write(a[1].to_string(), a[0].to_string());
             Ok(Value::Bool(res.is_ok()))
         });
+
+        /*
+        self.define_native("input", 0, |a| {
+            let mut input = String::new();
+            io::stdin()
+                .read_line(&mut input)
+                .expect("Failed to read line!");
+            Ok(Value::DynString(Rc::new(input)))
+        });*/
     }
 
     fn define_native(
@@ -625,7 +623,6 @@ impl VM {
 
     pub fn new() -> VM {
         VM {
-            frames: SVec::new(),
             stack: SVec::new(),
             globals: Map::new(),
             open_upvalues: SVec::new(),
