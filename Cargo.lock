@@ -13,6 +13,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "cloxrs"
+version = "1.0.0"
+dependencies = [
+ "either",
+ "enum-methods",
+ "plain_enum",
+ "rustc-hash",
+ "smallvec",
+ "smol_str",
+ "string-interner",
+]
+
+[[package]]
 name = "either"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -35,19 +48,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
 dependencies = [
  "ahash",
-]
-
-[[package]]
-name = "loxrs"
-version = "0.1.0"
-dependencies = [
- "either",
- "enum-methods",
- "plain_enum",
- "rustc-hash",
- "smallvec",
- "smol_str",
- "string-interner",
 ]
 
 [[package]]

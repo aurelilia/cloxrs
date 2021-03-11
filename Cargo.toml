@@ -1,6 +1,6 @@
 [package]
-name = "loxrs"
-version = "0.1.0"
+name = "cloxrs"
+version = "1.0.0"
 authors = ["Ellie Ang. <git@angm.xyz>"]
 edition = "2018"
 

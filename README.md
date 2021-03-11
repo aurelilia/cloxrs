@@ -47,14 +47,14 @@ where it then inserts them.
 will automatically install the newest nightly version.
 
 ``` bash
-# Build release, output in ./target/release/loxrs
+# Build release, output in ./target/release/cloxrs
 cargo build --release
 
 # Run as REPL
-./target/release/loxrs 
+./target/release/cloxrs 
 
 # Execute $file
-./target/release/loxrs  $file
+./target/release/cloxrs $file
 ```
 
 ### Code style
