@@ -43,8 +43,10 @@ where it then inserts them.
 
 ### Build/Run
 
-`cloxrs` requires a nightly version of Rust. If you use `rustup`, `rustup default nightly`
-will automatically install the newest nightly version.
+As of 2021-03-11, `cloxrs` requires a nightly version of Rust due to use of
+`const_mut_refs` and `const_fn_fn_ptr_basics` features (they might be stablized by
+the time you read this).
+If you use `rustup`, `rustup default nightly` will automatically install the newest nightly version.
 
 ``` bash
 # Build release, output in ./target/release/cloxrs
